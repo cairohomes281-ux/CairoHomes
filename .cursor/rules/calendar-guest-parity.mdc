@@ -1,0 +1,17 @@
+---
+description: Keep Schedule blocked nights identical on guest listing calendars
+globs: Server/src/lib/calendarOccupancy.js,Server/src/services/pricing.js,Server/src/routes/units.js,Server/src/routes/pms/compat.js,Client/src/pages/ListingDetailPage.jsx,Client/src/constants/availability.js,Client/src/admin/pages/Schedule.jsx,Client/src/components/listing/**,Client/src/components/booking/**
+alwaysApply: false
+---
+
+# Calendar occupancy parity
+
+Schedule blocked nights and guest listing calendars must use **one occupancy helper**: `Server/src/lib/calendarOccupancy.js`.
+
+- Guest `/units/:id/availability` must call `getBlockedDates` (which uses that helper). Do not query `unit_blocked_dates` / iCal / reservations in a second way.
+- Schedule `/calendar-blocks` must call `fetchCalendarOccupancyRows`. Do not duplicate that SQL in the route.
+- Do **not** fetch live OTA iCal inside guest availability. Read `unit_ical_blocks` (same cache Schedule uses). Refresh happens in the iCal job.
+- Never drop `manual` / `owner` / `ical` / import holds on a checkout day. Checkout is only open when that night is not occupied and not explicitly blocked.
+- Unpriced nights are guest-unavailable; Schedule shows them as no price, not as a separate occupancy query.
+- Guest date pickers must load `GUEST_AVAILABILITY_MONTHS` (keep Client and Server constants equal).
+- After changing occupancy, run `npm test --prefix Server`.

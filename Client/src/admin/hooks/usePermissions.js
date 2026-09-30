@@ -1,0 +1,87 @@
+import { useAuth } from '../context/AuthContext';
+import {
+  hasPermission,
+  canAccess,
+  canManageUnits,
+  canManageLongTermUnits,
+  canReserveLongTermUnits,
+  canDeleteUnits,
+  canManageReservations,
+  canHandleWebsiteBookings,
+  canViewAllReservations,
+  canEditOrChecklist,
+  canEditSchedulePricing,
+  canWriteSchedule,
+  canAccessFinance,
+  canAccessFinancialSystem,
+  canManageUsers,
+  isReservationsTeam,
+  isWebsiteReservationsRole,
+  isManualReservationsRole,
+  isReservationsManager,
+  isResaleManager,
+  isResaleStaff,
+  isFinanceManager,
+  isFinanceStaff,
+  isOwnersRelationsRole,
+  isUnitAcquisitionRole,
+  isUnitAcquisitionManager,
+  canManageOwners,
+  isTaskAssigneeRole,
+  canAssignStaffTasks,
+} from '../utils/permissions';
+
+export function usePermissions() {
+  const { user } = useAuth();
+  const isReservations = isReservationsTeam(user);
+  const isWebsiteReservations = isWebsiteReservationsRole(user);
+  const isManualReservations = isManualReservationsRole(user);
+  const isReservationsManagerRole = isReservationsManager(user);
+  const isOwnersRelations = isOwnersRelationsRole(user);
+
+  return {
+    can: (permission) => hasPermission(user, permission),
+    canAccess: (page) => canAccess(user, page),
+    canManageUnits: canManageUnits(user),
+    canManageLongTermUnits: canManageLongTermUnits(user),
+    canReserveLongTermUnits: canReserveLongTermUnits(user),
+    canDeleteUnits: canDeleteUnits(user),
+    canManageReservations: canManageReservations(user),
+    canHandleWebsiteBookings: canHandleWebsiteBookings(user),
+    canViewAllReservations: canViewAllReservations(user),
+    canEditOrChecklist: canEditOrChecklist(user),
+    canEditSchedulePricing: canEditSchedulePricing(user),
+    canWriteSchedule: canWriteSchedule(user),
+    canAccessFinance: canAccessFinance(user),
+    canAccessFinancialSystem: canAccessFinancialSystem(user),
+    canManageUsers: canManageUsers(user),
+    canManageOwners: canManageOwners(user),
+    isAdmin: user?.role === 'admin',
+    isReservations,
+    isWebsiteReservations,
+    isManualReservations,
+    isReservationsManager: isReservationsManagerRole,
+    isOwnersRelations,
+    isUnitAcquisition: isUnitAcquisitionRole(user),
+    isUnitAcquisitionManager: isUnitAcquisitionManager(user),
+    isTaskAssignee: isTaskAssigneeRole(user),
+    canAssignStaffTasks: canAssignStaffTasks(user),
+    isResale: isResaleStaff(user),
+    isResaleAgent: user?.role === 'resale',
+    isResaleManager: isResaleManager(user),
+    isFinanceRole: user?.role === 'finance',
+    isFinanceManager: isFinanceManager(user),
+    isFinanceStaff: isFinanceStaff(user),
+    isHr: user?.role === 'hr' || user?.role === 'hr_supervisor',
+    isHrSupervisor: user?.role === 'hr_supervisor',
+    isOwner: user?.role === 'owner',
+    
+    isFinance: user?.role === 'admin' || isFinanceStaff(user),
+    isOpManager: user?.role === 'admin',
+    isSales: isReservations,
+    isOwnerExperience: isResaleStaff(user),
+    isBroker: false,
+    role: user?.role,
+    user,
+  };
+}

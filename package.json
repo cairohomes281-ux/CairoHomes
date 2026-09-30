@@ -1,0 +1,23 @@
+{
+  "name": "cairo-homes",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cairo Homes — Client/Server monorepo (guest + admin SPA, Express server + DB migrations)",
+  "scripts": {
+    "install:all": "npm install --prefix Server && npm install --prefix Client",
+    "postinstall": "npm install --omit=dev --prefix Server",
+    "dev:db": "npm run dev:db --prefix Server",
+    "seed:demo": "npm run seed:demo --prefix Server",
+    "seed:demo:reset": "npm run seed:demo:reset --prefix Server",
+    "dev:server": "npm run dev --prefix Server",
+    "dev:client": "npm run dev --prefix Client",
+    "dev:backend": "npm run dev --prefix Server",
+    "dev:frontend": "npm run dev --prefix Client",
+    "build:client": "npm run build --prefix Client",
+    "start": "npm start --prefix Server",
+    "test": "npm test --prefix Server"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
