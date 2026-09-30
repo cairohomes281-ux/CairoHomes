@@ -19,6 +19,7 @@ export default function WhatsAppFAB({ message }) {
         : undefined;
   const href = whatsappHref(text);
   const label = t('fab.whatsapp');
+  const hasBookingBar = pathname.startsWith('/listings/');
 
   return (
     <a
@@ -27,7 +28,7 @@ export default function WhatsAppFAB({ message }) {
       rel="noopener noreferrer"
       aria-label={label}
       title={label}
-      className="group fixed bottom-5 end-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-ch-pine shadow-[0_18px_40px_-12px_rgba(16,33,31,0.55)] ring-4 ring-ch-blush/50 transition duration-500 hover:bg-ch-pine-dark hover:ring-ch-blush md:bottom-6 md:end-6 md:h-[60px] md:w-[60px]"
+      className={`${hasBookingBar ? 'max-md:hidden ' : ''}group fixed bottom-5 end-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-ch-pine shadow-[0_18px_40px_-12px_rgba(16,33,31,0.55)] ring-4 ring-ch-blush/50 transition duration-500 hover:bg-ch-pine-dark hover:ring-ch-blush md:bottom-6 md:end-6 md:h-[60px] md:w-[60px]`}
     >
       <span className="absolute end-0.5 top-0.5 h-3 w-3 rounded-full border-2 border-ch-ivory bg-[#25d366]" aria-hidden="true" />
       <svg

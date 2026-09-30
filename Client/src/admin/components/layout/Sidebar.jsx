@@ -214,7 +214,8 @@ export default function Sidebar({ collapsed, isMobile, mobileOpen, onCloseMobile
       style={{
         width: sidebarW,
         transform: isMobile && !mobileOpen ? 'translateX(-100%)' : 'translateX(0)',
-        transition: 'transform 0.3s ease, width 0.3s ease',
+        ...(isMobile && !mobileOpen ? { boxShadow: 'none', visibility: 'hidden' } : {}),
+        transition: `transform 0.3s ease, width 0.3s ease, visibility 0s linear ${isMobile && !mobileOpen ? '0.3s' : '0s'}`,
       }}
     >
       <div className="pms-sidebar-rail" aria-hidden />

@@ -74,7 +74,7 @@ export default function ContactPage() {
                   </span>
                   <span className="min-w-0">
                     <span className="block text-[11px] font-semibold uppercase tracking-[0.22em] text-ch-clay">{label}</span>
-                    <span className="mt-1 block truncate font-display text-[1.35rem] text-ch-pine-dark md:text-[1.6rem]" dir={Icon === Phone || Icon === MessageCircle ? 'ltr' : undefined}>
+                    <span className="mt-1 block break-words font-display text-[1.2rem] text-ch-pine-dark [overflow-wrap:anywhere] min-[400px]:text-[1.35rem] md:text-[1.6rem]" dir={Icon === Phone || Icon === MessageCircle ? 'ltr' : undefined}>
                       {value}
                     </span>
                     <span className="mt-0.5 block text-[13.5px] text-ch-muted">{description}</span>

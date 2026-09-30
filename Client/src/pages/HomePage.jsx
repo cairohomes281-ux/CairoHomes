@@ -75,11 +75,11 @@ function Intro() {
             <p className="ch-lede mt-6 max-w-xl">{t('home.introBody')}</p>
             <p className="ch-lede mt-4 max-w-xl">{t('home.introBody2')}</p>
           </Reveal>
-          <Reveal delay={220} className="mt-12 grid grid-cols-3 gap-6 border-t border-ch-line pt-8">
+          <Reveal delay={220} className="mt-12 flex gap-4 border-t border-ch-line pt-8 sm:gap-6">
             {stats.map((s) => (
-              <div key={s.label}>
+              <div key={s.label} className="flex-1">
                 <p className="font-display text-[2.6rem] leading-none text-ch-pine md:text-[3.2rem]">{s.value}</p>
-                <p className="mt-3 text-[11px] font-semibold uppercase leading-relaxed tracking-[0.18em] text-ch-muted">{s.label}</p>
+                <p className="mt-3 text-[11px] font-semibold uppercase leading-relaxed tracking-[0.12em] text-ch-muted sm:tracking-[0.18em]">{s.label}</p>
               </div>
             ))}
           </Reveal>

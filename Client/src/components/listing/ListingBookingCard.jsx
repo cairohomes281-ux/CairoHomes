@@ -222,12 +222,12 @@ export default function ListingBookingCard({
             {t('listing.whatsappInquiry')}
           </a>
         ) : (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 min-[400px]:gap-3">
             <div className="min-w-0 flex-1">
-              <div className="truncate font-display text-[1.35rem] font-light leading-tight text-ch-pine-dark">
+              <div className="truncate font-display text-[1.2rem] font-light leading-tight text-ch-pine-dark min-[400px]:text-[1.35rem]">
                 {pricePerNight != null ? money(pricePerNight) : t('listing.inquire')}
                 {pricePerNight != null && (
-                  <span className="font-display text-[12px] italic text-ch-muted"> {t('listing.perNightWord')}</span>
+                  <span className="font-display text-[12px] italic text-ch-muted"> {t('common.perNight')}</span>
                 )}
               </div>
               <div className="truncate text-[11px] text-ch-muted">{t('listing.housekeepingShort', { amount: money(cleaning) })}</div>
@@ -244,7 +244,7 @@ export default function ListingBookingCard({
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="shrink-0 rounded-full bg-ch-pine px-6 py-3.5 text-[12px] font-semibold uppercase tracking-[0.16em] text-white hover:bg-ch-pine-dark"
+              className="shrink-0 rounded-full bg-ch-pine px-5 py-3.5 text-[12px] font-semibold uppercase tracking-[0.16em] text-white hover:bg-ch-pine-dark min-[400px]:px-6"
             >
               {t('listing.reserve')}
             </button>

@@ -40,7 +40,7 @@ const RESERVATION_TABS = [
 
 function ReservationTabs({ active, onChange, showList, pendingCount }) {
   return (
-    <div className="flex gap-1 border-b border-ch-line">
+    <div className="flex gap-1 overflow-x-auto border-b border-ch-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {RESERVATION_TABS.filter((t) => showList || t.key !== 'list').map((t) => {
         const Icon = t.icon;
         const isActive = active === t.key;
@@ -50,7 +50,7 @@ function ReservationTabs({ active, onChange, showList, pendingCount }) {
             type="button"
             onClick={() => onChange(t.key)}
             aria-pressed={isActive}
-            className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+            className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
               isActive
                 ? 'border-ch-pine text-ch-pine'
                 : 'border-transparent text-ch-muted hover:text-ch-ink'

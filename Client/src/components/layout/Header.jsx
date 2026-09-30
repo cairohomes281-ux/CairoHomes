@@ -199,7 +199,7 @@ export default function Header({ overHero = false }) {
               }`}
             >
               <User size={15} strokeWidth={1.8} />
-              <span className="hidden sm:inline">{user ? t('nav.account') : t('nav.signIn')}</span>
+              <span className="hidden whitespace-nowrap sm:inline">{user ? t('nav.account') : t('nav.signIn')}</span>
             </button>
           </div>
         </div>

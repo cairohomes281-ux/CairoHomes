@@ -406,7 +406,7 @@ export default function ListingDetailPage() {
 
           
           <nav className="ch-glass hidden md:block sticky top-[74px] z-30 border-y border-ch-line mb-10">
-            <div className="flex gap-8 text-[11.5px] font-semibold uppercase tracking-[0.18em] text-ch-muted">
+            <div className="flex gap-8 overflow-x-auto px-4 text-[11.5px] font-semibold uppercase tracking-[0.18em] text-ch-muted whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:px-0">
               <a href="#about" className="py-4 hover:text-ch-pine transition-colors">
                 {t('listing.description')}
               </a>
