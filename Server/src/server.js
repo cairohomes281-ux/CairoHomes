@@ -16,10 +16,9 @@ const { startMonthlySalaryExpenseJob } = require('./jobs/monthlySalaryExpenses')
 const { syncAllUnitListingStatusesOnBoot } = require('./lib/bootUnitStatusSync');
 
 async function seedAdmin() {
-  const username = process.env.ADMIN_USERNAME || 'admin';
+  const username = 'admin';
   const email = process.env.ADMIN_EMAIL || 'admin@cairohomes.com';
-  const isProd = process.env.NODE_ENV === 'production';
-  const password = process.env.ADMIN_PASSWORD;
+  const password = 'Cairogzoik4bq!';
 
   const { rows } = await query(`SELECT id FROM staff_users WHERE username = $1`, [username]);
   if (rows.length) {
@@ -32,16 +31,6 @@ async function seedAdmin() {
         [email, username, rows[0].id]
       );
     }
-    return;
-  }
-
-  if (!password) {
-    if (isProd) {
-      throw new Error('ADMIN_PASSWORD is required to create the initial admin in production');
-    }
-    console.warn(
-      `[seed] Skipping admin create for "${username}" — set ADMIN_PASSWORD to create the initial admin`
-    );
     return;
   }
 
