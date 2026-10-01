@@ -15,7 +15,7 @@ const bcrypt = require('bcryptjs');
 const { query, pool } = require('../src/config/db');
 const { generateUniqueStaffCode } = require('../src/lib/staffIdentity');
 
-const DEMO_PASSWORD = 'Demo@2026';
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'Demo@2026';
 const DEMO_TAG = 'demo-seed';
 const RESET = process.argv.includes('--reset');
 
