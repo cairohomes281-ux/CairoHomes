@@ -72,7 +72,6 @@ export default function PaymentPage() {
     nights,
     nightlyRate,
     subtotalAmount,
-    cleaningFee,
     accessFee,
     serviceFee,
     feeLines = [],
@@ -239,7 +238,6 @@ export default function PaymentPage() {
                     <span className="font-semibold text-ch-pine">{money(subtotalAmount)}</span>
                   </div>
                   {(feeLines.length ? feeLines : [
-                    cleaningFee > 0 && { key: 'cleaning', label: t('payment.cleaning'), amount: cleaningFee },
                     accessFee > 0 && { key: 'access', label: t('payment.accessBeach'), amount: accessFee },
                     serviceFee > 0 && {
                       key: 'service',

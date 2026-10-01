@@ -96,8 +96,6 @@ async function previewOwnerBlockImpact(unitId, fromDate, toDate) {
     nights: nights.length,
     total_amount: gross,
     price_per_night: nights.length ? gross / nights.length : 0,
-    housekeeping_fees: 0,
-    utilities_amount: 0,
     is_owner_reservation: 0,
   };
   const fin = calcReservationFinancials(unit, fakeRes);

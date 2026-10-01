@@ -40,6 +40,49 @@ function applyDiscount(promo, amount) {
   };
 }
 
+function normalizeLabel(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function hasScope(promo) {
+  return Boolean(
+    promo?.scope_destinations?.length || promo?.scope_projects?.length || promo?.scope_unit_ids?.length
+  );
+}
+
+function promoAppliesToUnit(promo, unit) {
+  if (!hasScope(promo)) return true;
+  if (!unit) return false;
+  const unitIds = (promo.scope_unit_ids || []).map(String);
+  if (unit.id && unitIds.includes(String(unit.id))) return true;
+  const destinations = (promo.scope_destinations || []).map(normalizeLabel);
+  if (destinations.length && destinations.includes(normalizeLabel(unit.area))) return true;
+  const projects = (promo.scope_projects || []).map(normalizeLabel);
+  if (projects.length) {
+    const unitProjects = [unit.project, unit.compound].map(normalizeLabel).filter(Boolean);
+    if (unitProjects.some((p) => projects.includes(p))) return true;
+  }
+  return false;
+}
+
+function assertPromoAppliesToUnit(promo, unit) {
+  if (promoAppliesToUnit(promo, unit)) return;
+  const err = new Error('This promo code is not valid for this home');
+  err.status = 422;
+  throw err;
+}
+
+async function loadPromoUnit({ unitId, slug } = {}) {
+  if (!unitId && !slug) return null;
+  const { rows } = await query(
+    `SELECT id, area, project, compound FROM units WHERE ${unitId ? 'id = $1' : 'slug = $1'} LIMIT 1`,
+    [unitId || slug]
+  );
+  return rows[0] || null;
+}
+
 async function findActivePromo(code) {
   const normalized = normalizeCode(code);
   if (!normalized) return null;
@@ -66,13 +109,14 @@ async function guestAlreadyRedeemed(promoId, guestKey) {
 }
 
 
-async function validatePromo({ code, amount, email, phone, guestId, allowRepeat = false } = {}) {
+async function validatePromo({ code, amount, email, phone, guestId, unit, allowRepeat = false } = {}) {
   const promo = await findActivePromo(code);
   if (!promo) {
     const err = new Error('Invalid or expired promo code');
     err.status = 404;
     throw err;
   }
+  assertPromoAppliesToUnit(promo, unit);
 
   const key = guestKeyFrom({ email, phone, guestId });
   const oncePerGuest = promo.once_per_guest !== false;
@@ -101,6 +145,7 @@ async function redeemPromo({
   guestId,
   bookingId,
   amountBeforeDiscount,
+  unit,
   client,
   allowRepeat = false,
 } = {}) {
@@ -122,6 +167,7 @@ async function redeemPromo({
     err.status = 400;
     throw err;
   }
+  if (unit !== undefined) assertPromoAppliesToUnit(promo, unit);
 
   const key = guestKeyFrom({ email, phone, guestId });
   if (!key) {
@@ -191,6 +237,8 @@ module.exports = {
   normalizeCode,
   guestKeyFrom,
   applyDiscount,
+  promoAppliesToUnit,
+  loadPromoUnit,
   findActivePromo,
   guestAlreadyRedeemed,
   validatePromo,

@@ -287,8 +287,6 @@
     "reservation": "Reservation",
     "ratesOnRequest": "Rates on request",
     "inquire": "Inquire",
-    "housekeepingFee": "Housekeeping Fee: {{amount}} (mandatory)",
-    "housekeepingShort": "Housekeeping {{amount}}",
     "beachAccess": "Club access: {{summary}}",
     "beachFree": "Free",
     "beachFlatStay": "{{amount}} flat per stay (not per guest)",
@@ -347,8 +345,6 @@
     "yourStay": "Your stay",
     "perNightWord": "per night",
     "tonightRate": "Tonight’s rate — prices vary by date",
-    "housekeepingLabel": "Housekeeping",
-    "oncePerStay": "once per stay",
     "minStayLabel": "Minimum stay",
     "nightsCount": "{{count}} nights",
     "checkInOutLabel": "Check-in / out",
@@ -398,7 +394,6 @@
     "invalidPromo": "Invalid promo code",
     "nightlyRate": "Nightly rate",
     "subtotalNights": "Subtotal ({{count}} nights)",
-    "cleaning": "Cleaning",
     "accessBeach": "Access / club passes",
     "serviceTax": "Service fees + Taxes (15%)",
     "promoDiscount": "Promo discount",
@@ -459,7 +454,6 @@
     "nightlyRate": "Nightly rate",
     "duration": "Duration",
     "subtotal": "Subtotal",
-    "cleaning": "Cleaning",
     "accessBeach": "Access / club",
     "serviceTax": "Service fees + Taxes (15%)",
     "invoiceBefore": "Invoice before discount",
@@ -614,16 +608,6 @@
     "logout": "Logout",
     "pointsTitle": "Home Points",
     "pointsBody": "You earn 1 Home Point for every 1 EGP on an accepted reservation. Points can later be exchanged for vouchers and free nights.",
-    "hkTitle": "Request housekeeping",
-    "hkBody": "You're currently staying{{unit}}. You already receive one housekeeping visit; request another for a time during your stay.",
-    "hkPending": "You already have a housekeeping request in progress. You can request another after it is completed.",
-    "date": "Date",
-    "time": "Time",
-    "hkSubmit": "Request housekeeping",
-    "sending": "Sending…",
-    "hkSuccess": "Housekeeping requested. Our team will follow up.",
-    "hkFail": "Could not send request",
-    "hkExtra": "Extra requests this stay: {{count}}",
     "history": "Reservation history",
     "stay": "Stay",
     "unit": "Unit {{number}}",
@@ -634,7 +618,6 @@
     "wishlistLocal": "Saved on this device. Sign in to sync across devices.",
     "removeWishlist": "Remove from wishlist",
     "wishlistEmpty": "Save homes while browsing — sign in to sync across devices.",
-    "unitSuffix": " in unit {{number}}",
     "savedOnDevice": "Saved on this device.",
     "toSyncAcrossDevices": "to sync across devices."
   },
@@ -731,7 +714,7 @@
       },
       {
         "q": "Is housekeeping included?",
-        "a": "Every stay begins with a professionally cleaned home and fresh linens. Longer stays include regular housekeeping, and extra cleans can be booked at any time."
+        "a": "Every stay begins with a professionally cleaned home and fresh linens."
       },
       {
         "q": "Which payment methods do you accept?",
@@ -936,14 +919,14 @@
         "notes": "Notes"
       },
       "recurring": {
-        "description": "Each month these accrue to vendor payable, then pay from Bank EGP. Rent and campus utilities pull 14/114 input VAT. Set 0 to skip a month. Owner money is computed from stays — it is not typed here.",
+        "description": "Each month these accrue to vendor payable, then pay from Bank EGP. Rent pulls 14/114 input VAT. Set 0 to skip a month. Owner money is computed from stays — it is not typed here.",
         "monthlyAmount": "Monthly amount (EGP)",
         "dayOfMonth": "Day of month",
         "saved": "Monthly charge saved"
       },
       "tax": {
-        "outputVat": "Output VAT ({{pct}}% exclusive on commission + cleaning)",
-        "inputVat": "Input VAT (14/114 on rent, software, professional, utilities)",
+        "outputVat": "Output VAT ({{pct}}% exclusive on commission)",
+        "inputVat": "Input VAT (14/114 on rent, software, professional)",
         "vatReturn": "VAT return (output − input)",
         "withholding": "Withholding ({{std}}% / {{reduced}}% professional)",
         "filingPack": "filing pack — {{month}}",
@@ -954,7 +937,6 @@
         "taxableBase": "Taxable base",
         "vatPct": "VAT ({{pct}}%)",
         "commissionRevenue": "Commission revenue",
-        "cleaningRevenue": "Cleaning revenue",
         "totalOutputVat": "Total output VAT",
         "vatInputDetail": "VAT input detail",
         "inputVatLabel": "Input VAT (14/114)",
@@ -1153,7 +1135,6 @@
         "detailTitle": "Check-in #{{id}}",
         "opsAgent": "Ops agent",
         "accommodation": "Accommodation",
-        "housekeeping": "Housekeeping",
         "insurance": "Insurance",
         "payments": "Payments",
         "noPayments": "No payment rows recorded",
@@ -1380,7 +1361,6 @@
         "selectApproved": "Select approved invoices to batch into a payment run, then confirm to mark them paid.",
         "general": "General",
         "professional": "Professional",
-        "utilities": "Utilities",
         "rent": "Rent",
         "maintenanceCat": "Maintenance",
         "software": "Software",
@@ -1517,7 +1497,7 @@
         "liabilitiesHint": "What Cairo Homes owes",
         "equityHint": "Capital and earnings",
         "revenueHint": "Reservation totals plus custom revenue",
-        "cogsHint": "Housekeeping, owner share, and stay costs",
+        "cogsHint": "Owner share and stay costs",
         "opexHint": "Company running costs",
         "expensesHint": "Direct costs and company running costs"
       }

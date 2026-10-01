@@ -1,6 +1,5 @@
 const { pool, query } = require('../config/db');
 const { quoteStay, toIsoDate, nightsBetween, getBlockedDates } = require('../services/pricing');
-const { housekeepingFeeForUnit } = require('./housekeeping');
 const { computeBeachAccessFee } = require('./beachAccess');
 const { paymentStatusFrom } = require('./syncReservationPayment');
 const { validatePromo, redeemPromo, guestKeyFrom } = require('./promoCodes');
@@ -82,9 +81,6 @@ async function priceTransferStay({ source, unit, checkIn, checkOut }) {
     });
   }
 
-  const housekeeping = quote?.available
-    ? Number(quote.cleaning_fee_egp) || housekeepingFeeForUnit(unit)
-    : housekeepingFeeForUnit(unit);
   const beach = quote?.available
     ? Number(quote.access_fee_egp) || 0
     : (
@@ -94,8 +90,6 @@ async function priceTransferStay({ source, unit, checkIn, checkOut }) {
           teens: children,
         })
       ).fee;
-  const utilitiesPerNight = Number(unit.utilities_cost) || 0;
-  const utilities = utilitiesPerNight > 0 ? roundMoney(utilitiesPerNight * nights) : 0;
 
   let accommodation = 0;
   let pricePerNight = 0;
@@ -121,17 +115,13 @@ async function priceTransferStay({ source, unit, checkIn, checkOut }) {
     accommodation = roundMoney(fallback * nights);
   }
 
-  const stayBeforePromo = roundMoney(
-    accommodation + housekeeping + beach + utilities + serviceFees
-  );
+  const stayBeforePromo = roundMoney(accommodation + beach + serviceFees);
 
   return {
     nights,
     price_per_night: roundMoney(pricePerNight),
     accommodation: roundMoney(accommodation),
-    housekeeping_fees: roundMoney(housekeeping),
     beach_access_fees: roundMoney(beach),
-    utilities_amount: utilities,
     service_fees: roundMoney(serviceFees),
     insurance,
     stay_before_promo: stayBeforePromo,
@@ -140,7 +130,7 @@ async function priceTransferStay({ source, unit, checkIn, checkOut }) {
   };
 }
 
-async function applyOptionalPromo({ source, promoCode, amount }) {
+async function applyOptionalPromo({ source, promoCode, amount, unit }) {
   const code = String(promoCode || '').trim();
   if (!code) return { promo: null, discount: 0, total: roundMoney(amount) };
 
@@ -149,6 +139,7 @@ async function applyOptionalPromo({ source, promoCode, amount }) {
     amount,
     email: source.guest_email,
     phone: source.guest_phone,
+    unit,
     allowRepeat: true,
   });
   return {
@@ -214,6 +205,7 @@ async function buildTransferPlan(source, { unit_id, check_in, check_out, promo_c
   const promo = await applyOptionalPromo({
     source,
     promoCode: promo_code,
+    unit,
     amount: priced.stay_before_promo,
   });
   const totalAmount = roundMoney(promo.total + priced.insurance);
@@ -259,9 +251,7 @@ async function previewTransfer(reservationId, body) {
       nights: plan.priced.nights,
       price_per_night: plan.priced.price_per_night,
       accommodation: plan.priced.accommodation,
-      housekeeping_fees: plan.priced.housekeeping_fees,
       beach_access_fees: plan.priced.beach_access_fees,
-      utilities_amount: plan.priced.utilities_amount,
       insurance: plan.priced.insurance,
       promo: plan.promo,
       discount: plan.discount,
@@ -298,8 +288,7 @@ async function executeTransfer(reservationId, body, staffUser) {
          unit_id, guest_name, guest_email, guest_phone, guest_nationality,
          check_in, check_out, nights, total_amount, amount_paid, payment_status,
          booking_source, sales_person_id, is_owner_reservation, status, notes, created_by,
-         booking_id, price_per_night, housekeeping_fees, insurance, down_payment,
-         utilities_amount, utilities_cost_override,
+         booking_id, price_per_night, insurance, down_payment,
          broker_name, broker_amount_per_night, broker_total,
          owner_collected_type, owner_collected_amount,
          payment_method, transfer_proof_path, transfer_proof_name,
@@ -307,7 +296,7 @@ async function executeTransfer(reservationId, body, staffUser) {
          beach_access_fees, id_photo_urls
        ) VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-         $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39
+         $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36
        )
        RETURNING *`,
       [
@@ -330,11 +319,8 @@ async function executeTransfer(reservationId, body, staffUser) {
         source.created_by,
         source.booking_id,
         plan.priced.price_per_night,
-        plan.priced.housekeeping_fees,
         plan.priced.insurance,
         source.down_payment,
-        plan.priced.utilities_amount,
-        source.utilities_cost_override,
         source.broker_name,
         source.broker_amount_per_night,
         source.broker_total,
@@ -385,13 +371,6 @@ async function executeTransfer(reservationId, body, staffUser) {
        WHERE id = $1`,
       [source.id, cancelNote]
     );
-
-    await client.query(
-      `UPDATE housekeeping_tasks
-       SET status = 'cancelled', updated_at = now()
-       WHERE reservation_id = $1 AND status IS DISTINCT FROM 'ready'`,
-      [source.id]
-    ).catch(() => {});
 
     if (source.booking_id) {
       await client.query(

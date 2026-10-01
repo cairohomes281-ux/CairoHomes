@@ -9,7 +9,6 @@ const { ensureStaffTaskTables } = require('./lib/staffTaskSchema');
 const { initSocket } = require('./config/socket');
 const { startBookingHoldExpiryJob } = require('./jobs/bookingHoldExpiry');
 const { startPmsReminderJobs } = require('./jobs/pmsReminders');
-const { startHousekeepingTaskJob } = require('./jobs/housekeepingTasks');
 const { startDataRetentionJob } = require('./jobs/dataRetention');
 const { startReservationSettlementJob } = require('./jobs/reservationSettlement');
 const { startMonthlySalaryExpenseJob } = require('./jobs/monthlySalaryExpenses');
@@ -66,7 +65,6 @@ async function main() {
   initSocket(server);
   startBookingHoldExpiryJob();
   startPmsReminderJobs();
-  startHousekeepingTaskJob();
   startDataRetentionJob();
   startReservationSettlementJob();
   startMonthlySalaryExpenseJob();

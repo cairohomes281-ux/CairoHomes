@@ -491,13 +491,6 @@ export default function OwnerStatement() {
                       sub="(tenant payments)"
                       value={currency(s?.totalGross)}
                     />
-                    {s?.totalUtilitiesDeduction > 0 && (
-                      <SummaryRow
-                        label="Utilities Deduction"
-                        value={`− ${currency(s.totalUtilitiesDeduction)}`}
-                        negative
-                      />
-                    )}
                     {s?.totalBrokerDeduction > 0 && (
                       <SummaryRow
                         label="Broker Deduction"

@@ -16,7 +16,6 @@ import ManualReservationForm, {
   EMPTY_MANUAL_RESERVATION_FORM,
 } from '../components/ManualReservationForm';
 import TransferReservationModal from '../components/TransferReservationModal';
-import { housekeepingFeeForUnit } from '../../utils/housekeeping';
 import { useAuth } from '../context/AuthContext';
 import { isoDateOnly } from '../../utils/stayNights';
 import { otaBlockRank, otaBlockLook } from '../utils/otaCalendar';
@@ -1176,7 +1175,6 @@ export default function Schedule() {
     if (!createForm.unit_id || !createForm.check_in || !createForm.check_out) {
       return toast.error('Unit and dates are required');
     }
-    const selectedUnit = unitsList.find((u) => String(u.id) === String(createForm.unit_id));
     const adults = Math.max(0, parseInt(createForm.adults, 10) || 0);
     const children = Math.max(0, parseInt(createForm.children, 10) || 0);
     const nannyCount = Math.max(0, parseInt(createForm.nanny_count, 10) || 0);
@@ -1188,12 +1186,6 @@ export default function Schedule() {
       adults,
       children,
       nanny_count: nannyCount,
-      housekeeping_fees:
-        createForm.housekeeping_fees !== '' && createForm.housekeeping_fees != null
-          ? Number(createForm.housekeeping_fees) || 0
-          : selectedUnit
-            ? housekeepingFeeForUnit(selectedUnit)
-            : 0,
       beach_access_fees: createForm.is_owner_reservation
         ? 0
         : createForm.beach_access_fees !== '' && createForm.beach_access_fees != null

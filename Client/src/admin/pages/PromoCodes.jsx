@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Edit2, Trash2, Tag, Eye } from 'lucide-react';
+import { Plus, Edit2, Trash2, Tag, Eye, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
@@ -9,6 +9,7 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import EmptyState from '../components/ui/EmptyState';
 import WebsitePopupSection from '../components/WebsitePopupSection';
 import { currency, formatDate, formatDateTime } from '../utils/formatters';
+import { useProjectCatalog } from '../../hooks/useProjectCatalog';
 
 const EMPTY_FORM = {
   code: '',
@@ -20,12 +21,26 @@ const EMPTY_FORM = {
   description: '',
   active: true,
   once_per_guest: true,
+  scope_mode: 'all',
+  scope_destinations: [],
+  scope_projects: [],
+  scope_unit_ids: [],
 };
+
+function hasScope(promo) {
+  return Boolean(
+    promo?.scope_destinations?.length || promo?.scope_projects?.length || promo?.scope_unit_ids?.length
+  );
+}
 
 function toForm(promo) {
   if (!promo) return { ...EMPTY_FORM };
   const hasPercent = Number(promo.discount_percent) > 0;
   return {
+    scope_mode: hasScope(promo) ? 'limited' : 'all',
+    scope_destinations: promo.scope_destinations || [],
+    scope_projects: promo.scope_projects || [],
+    scope_unit_ids: promo.scope_unit_ids || [],
     code: promo.code || '',
     discount_type: hasPercent ? 'percent' : 'fixed',
     discount_percent: hasPercent ? String(promo.discount_percent) : '',
@@ -48,7 +63,166 @@ function toPayload(form) {
     description: form.description || null,
     active: form.active,
     once_per_guest: form.once_per_guest,
+    scope_destinations: form.scope_mode === 'limited' ? form.scope_destinations : [],
+    scope_projects: form.scope_mode === 'limited' ? form.scope_projects : [],
+    scope_unit_ids: form.scope_mode === 'limited' ? form.scope_unit_ids : [],
   };
+}
+
+function unitLabel(u) {
+  return [u.unit_number || u.internal_code, u.title].filter(Boolean).join(' · ') || 'Unit';
+}
+
+function scopeSummary(promo, unitsById) {
+  if (!hasScope(promo)) return 'All homes';
+  const parts = [
+    ...(promo.scope_destinations || []),
+    ...(promo.scope_projects || []),
+    ...(promo.scope_unit_ids || []).map((id) => unitsById[id]?.unit_number || unitsById[id]?.title || 'Unit'),
+  ];
+  return parts.length > 3 ? `${parts.slice(0, 3).join(', ')} +${parts.length - 3}` : parts.join(', ');
+}
+
+function toggle(list, value) {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+}
+
+function Chip({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+        active
+          ? 'border-ch-pine bg-ch-pine text-white'
+          : 'border-ch-line bg-white text-gray-700 hover:border-ch-pine/50'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ScopePicker({ form, setForm, units }) {
+  const { destinations, projectsByDestination } = useProjectCatalog();
+  const [unitSearch, setUnitSearch] = useState('');
+
+  const filteredUnits = useMemo(() => {
+    const q = unitSearch.trim().toLowerCase();
+    const list = q
+      ? units.filter((u) =>
+          [u.unit_number, u.internal_code, u.title, u.project, u.compound, u.area]
+            .filter(Boolean)
+            .some((v) => String(v).toLowerCase().includes(q))
+        )
+      : units;
+    return list.slice(0, 200);
+  }, [units, unitSearch]);
+
+  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+  const selectedCount =
+    form.scope_destinations.length + form.scope_projects.length + form.scope_unit_ids.length;
+
+  return (
+    <div className="space-y-3 rounded-xl border border-ch-line p-3">
+      <div>
+        <span className="block text-sm font-semibold text-gray-900">Where it applies</span>
+        <span className="block text-xs text-gray-500">
+          Limit the code to destinations, projects or specific homes. A home qualifies if it matches any selection.
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Chip active={form.scope_mode === 'all'} onClick={() => set('scope_mode', 'all')}>
+          All homes
+        </Chip>
+        <Chip active={form.scope_mode === 'limited'} onClick={() => set('scope_mode', 'limited')}>
+          Only selected{form.scope_mode === 'limited' && selectedCount ? ` (${selectedCount})` : ''}
+        </Chip>
+      </div>
+
+      {form.scope_mode === 'limited' && (
+        <div className="space-y-4 pt-1">
+          <div>
+            <p className="label">Destinations</p>
+            <div className="flex flex-wrap gap-2">
+              {destinations.length === 0 && <span className="text-xs text-gray-400">No destinations yet.</span>}
+              {destinations.map((d) => (
+                <Chip
+                  key={d}
+                  active={form.scope_destinations.includes(d)}
+                  onClick={() => set('scope_destinations', toggle(form.scope_destinations, d))}
+                >
+                  {d}
+                </Chip>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="label">Projects</p>
+            <div className="space-y-2">
+              {destinations.every((d) => !(projectsByDestination[d] || []).length) && (
+                <span className="text-xs text-gray-400">No projects yet.</span>
+              )}
+              {destinations.map((d) =>
+                (projectsByDestination[d] || []).length ? (
+                  <div key={d}>
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{d}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {projectsByDestination[d].map((p) => (
+                        <Chip
+                          key={`${d}-${p}`}
+                          active={form.scope_projects.includes(p)}
+                          onClick={() => set('scope_projects', toggle(form.scope_projects, p))}
+                        >
+                          {p}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                ) : null
+              )}
+            </div>
+          </div>
+
+          <div>
+            <p className="label">Specific homes</p>
+            <div className="relative mb-2">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                className="input pl-9"
+                value={unitSearch}
+                onChange={(e) => setUnitSearch(e.target.value)}
+                placeholder="Search by unit number, title or project"
+              />
+            </div>
+            <div className="max-h-56 overflow-y-auto rounded-xl border border-ch-line divide-y divide-ch-line">
+              {filteredUnits.length === 0 && (
+                <p className="px-3 py-4 text-center text-xs text-gray-400">No homes found.</p>
+              )}
+              {filteredUnits.map((u) => (
+                <label key={u.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-[var(--pms-accent,#2f5d58)]"
+                    checked={form.scope_unit_ids.includes(u.id)}
+                    onChange={() => set('scope_unit_ids', toggle(form.scope_unit_ids, u.id))}
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-gray-900">{unitLabel(u)}</span>
+                    <span className="block truncate text-xs text-gray-500">
+                      {[u.project || u.compound, u.area].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function discountLabel(promo) {
@@ -57,7 +231,7 @@ function discountLabel(promo) {
   return '—';
 }
 
-function PromoForm({ form, setForm }) {
+function PromoForm({ form, setForm, units }) {
   return (
     <div className="space-y-4">
       <div className="form-grid">
@@ -148,6 +322,8 @@ function PromoForm({ form, setForm }) {
         </div>
       </div>
 
+      <ScopePicker form={form} setForm={setForm} units={units} />
+
       <label className="flex items-start gap-3 rounded-xl border border-ch-line bg-slate-50 px-3 py-2.5">
         <input
           type="checkbox"
@@ -191,6 +367,12 @@ export default function PromoCodes() {
     queryKey: ['promo-codes'],
     queryFn: () => api.get('/promo-codes').then((r) => r.data),
   });
+
+  const { data: units = [] } = useQuery({
+    queryKey: ['units'],
+    queryFn: () => api.get('/units').then((r) => r.data),
+  });
+  const unitsById = useMemo(() => Object.fromEntries(units.map((u) => [u.id, u])), [units]);
 
   const { data: detail, isLoading: detailLoading } = useQuery({
     queryKey: ['promo-code', viewId],
@@ -246,6 +428,15 @@ export default function PromoCodes() {
       toast.error('Enter a fixed amount greater than 0');
       return;
     }
+    if (
+      form.scope_mode === 'limited' &&
+      !form.scope_destinations.length &&
+      !form.scope_projects.length &&
+      !form.scope_unit_ids.length
+    ) {
+      toast.error('Pick at least one destination, project or home, or choose All homes');
+      return;
+    }
     saveMutation.mutate(toPayload(form));
   };
 
@@ -290,6 +481,7 @@ export default function PromoCodes() {
                 <tr>
                   <th>Code</th>
                   <th>Discount</th>
+                  <th>Applies to</th>
                   <th>Uses</th>
                   <th>Per guest</th>
                   <th>Expires</th>
@@ -307,6 +499,9 @@ export default function PromoCodes() {
                       ) : null}
                     </td>
                     <td className="whitespace-nowrap font-medium">{discountLabel(p)}</td>
+                    <td className="max-w-[14rem] truncate text-gray-700" title={scopeSummary(p, unitsById)}>
+                      {scopeSummary(p, unitsById)}
+                    </td>
                     <td className="whitespace-nowrap tabular-nums">
                       {p.used_count || 0}
                       {p.max_uses != null ? ` / ${p.max_uses}` : ''}
@@ -396,7 +591,7 @@ export default function PromoCodes() {
           </>
         }
       >
-        <PromoForm form={form} setForm={setForm} />
+        <PromoForm form={form} setForm={setForm} units={units} />
       </Modal>
 
       <Modal

@@ -39,8 +39,6 @@ export function calcReservationFinancials(unit, reservation) {
   const tenantPct = parseFloat(unit.commission_tenant_pct) || 0;
 
   const base = rentalBase(reservation);
-  const utilitiesDeduction = parseFloat(reservation.utilities_amount) || 0;
-  const housekeepingFees = parseFloat(reservation.housekeeping_fees) || 0;
   let brokerDeduction = parseFloat(reservation.broker_total) || 0;
   if (!(brokerDeduction > 0)) {
     const brokerNight = parseFloat(reservation.broker_amount_per_night) || 0;
@@ -67,7 +65,7 @@ export function calcReservationFinancials(unit, reservation) {
       : 0;
 
   const subtotal = round2(afterBroker - tenantDeduction);
-  const ownerNet = round2(subtotal - companyCommission - utilitiesDeduction);
+  const ownerNet = round2(subtotal - companyCommission);
   const intermediatePricePerNight = nights > 0 ? round2(subtotal / nights) : 0;
   const adjustedPricePerNight = nights > 0 ? round2(ownerNet / nights) : 0;
 
@@ -77,8 +75,6 @@ export function calcReservationFinancials(unit, reservation) {
     rentalBase: base,
     brokerDeduction,
     tenantDeduction,
-    utilitiesDeduction,
-    housekeepingFees,
     subtotal,
     intermediatePricePerNight,
     companyCommission,
@@ -96,8 +92,6 @@ function nullFinancials() {
     rentalBase: 0,
     brokerDeduction: 0,
     tenantDeduction: 0,
-    utilitiesDeduction: 0,
-    housekeepingFees: 0,
     subtotal: 0,
     intermediatePricePerNight: 0,
     companyCommission: 0,

@@ -6,7 +6,6 @@ import ListingDatePicker, {
   isoToLocalDate,
   localDateToIso,
 } from '../../components/listing/ListingDatePicker';
-import { housekeepingFeeForUnit } from '../../utils/housekeeping';
 import {
   computeBeachAccessFee,
   getGuestLoad,
@@ -49,7 +48,6 @@ export const EMPTY_MANUAL_RESERVATION_FORM = {
   price_per_night: '',
   total_amount: '',
   down_payment: '',
-  housekeeping_fees: '',
   insurance: '',
   booking_source: '',
   sales_person_id: '',
@@ -57,7 +55,6 @@ export const EMPTY_MANUAL_RESERVATION_FORM = {
   notes: '',
   owner_collected_type: '',
   owner_collected_amount: '',
-  utilities_cost_override: '',
   beach_access_fees: '',
   broker_name: '',
   broker_amount_per_night: '',
@@ -133,11 +130,6 @@ export default function ManualReservationForm({
     );
   }, [form.check_in, form.check_out]);
 
-  const defaultHousekeeping = selectedUnit ? housekeepingFeeForUnit(selectedUnit) : 0;
-  const housekeeping =
-    form.housekeeping_fees !== '' && form.housekeeping_fees != null
-      ? Number(form.housekeeping_fees) || 0
-      : defaultHousekeeping;
   const adultsCount = Math.max(0, parseInt(form.adults, 10) || 0);
   const childrenCount = Math.max(0, parseInt(form.children, 10) || 0);
   const capacity = Number(selectedUnit?.guests || selectedUnit?.capacity) || 0;
@@ -164,32 +156,19 @@ export default function ManualReservationForm({
   const ownerCollected = Number(form.owner_collected_amount) || 0;
   const brokerPerNight = Number(form.broker_amount_per_night) || 0;
   const brokerTotal = brokerPerNight * nights;
-  const utilitiesPerNight = form.is_owner_reservation
-    ? 0
-    : Number(form.utilities_cost_override || selectedUnit?.utilities_cost) || 0;
-  const utilitiesAmount = utilitiesPerNight * nights;
-  const fullBill = Math.round((total + housekeeping + beachAccessFees + insurance + utilitiesAmount) * 100) / 100;
+  const fullBill = Math.round((total + beachAccessFees + insurance) * 100) / 100;
   const commissionFinancials = selectedUnit
     ? calcReservationFinancials(selectedUnit, {
         ...form,
         nights,
         broker_total: brokerTotal,
-        utilities_amount: utilitiesAmount,
       })
     : null;
 
   let toCollect = fullBill - downPayment;
-  if (form.owner_collected_type === 'full') toCollect = housekeeping + insurance - downPayment;
+  if (form.owner_collected_type === 'full') toCollect = insurance - downPayment;
   if (form.owner_collected_type === 'partial') toCollect = fullBill - ownerCollected - downPayment;
   toCollect = Math.max(0, toCollect);
-
-  useEffect(() => {
-    if (!selectedUnit) return;
-    const fee = housekeepingFeeForUnit(selectedUnit);
-    setForm((cur) =>
-      Number(cur.housekeeping_fees) === fee ? cur : { ...cur, housekeeping_fees: String(fee) }
-    );
-  }, [selectedUnit?.id, setForm]);
 
   useEffect(() => {
     const next = form.is_owner_reservation ? 0 : beachAccessFees;
@@ -324,25 +303,6 @@ export default function ManualReservationForm({
                 className={fieldClass}
                 placeholder="EGP"
               />
-            </div>
-            <div>
-              <Label>Housekeeping (EGP)</Label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.housekeeping_fees}
-                onChange={(e) =>
-                  setForm((cur) => ({ ...cur, housekeeping_fees: e.target.value }))
-                }
-                className={fieldClass}
-                placeholder={defaultHousekeeping ? String(defaultHousekeeping) : '0'}
-              />
-              {selectedUnit && (
-                <p className="mt-1 text-[11px] text-[#8b97aa]">
-                  Unit default {money(defaultHousekeeping)} — edit if this stay differs
-                </p>
-              )}
             </div>
           </div>
 
@@ -520,7 +480,7 @@ export default function ManualReservationForm({
             <span>
               <span className="block text-sm font-semibold text-[#0f1c2e]">Owner reservation</span>
               <span className="block text-[12.5px] text-[#5b6b80]">
-                Mark owner stays and skip utilities deduction.
+                Mark stays booked by the owner.
               </span>
             </span>
           </label>
@@ -663,7 +623,7 @@ export default function ManualReservationForm({
             onClick={() => setShowAdvanced((value) => !value)}
             className="flex w-full items-center justify-between rounded-[10px] border border-[#e6ebf2] px-3 py-2.5 text-sm font-semibold text-[#1e5fbf] hover:bg-[#eef4ff]"
           >
-            Owner collection & utilities
+            Owner collection
             <ChevronDown className={`h-4 w-4 transition ${showAdvanced ? 'rotate-180' : ''}`} />
           </button>
 
@@ -707,28 +667,6 @@ export default function ManualReservationForm({
                   </div>
                 )}
               </div>
-              {!form.is_owner_reservation && (
-                <div>
-                  <Label>Utilities override / night</Label>
-                  <input
-                    type="number"
-                    min="0"
-                    className={fieldClass}
-                    value={form.utilities_cost_override}
-                    onChange={(event) =>
-                      setForm((cur) => ({
-                        ...cur,
-                        utilities_cost_override: event.target.value,
-                      }))
-                    }
-                    placeholder={
-                      selectedUnit?.utilities_cost
-                        ? `Default ${selectedUnit.utilities_cost}`
-                        : 'Unit default'
-                    }
-                  />
-                </div>
-              )}
             </div>
           )}
 
@@ -762,10 +700,6 @@ export default function ManualReservationForm({
               <span className="text-[#5b6b80]">Accommodation ({nights || '—'} nights)</span>
               <strong className="text-[#0f1c2e]">{nights ? money(total) : '—'}</strong>
             </div>
-            <div className="flex justify-between py-1">
-              <span className="text-[#5b6b80]">Housekeeping</span>
-              <strong className="text-[#0f1c2e]">{money(housekeeping)}</strong>
-            </div>
             {beachAccessFees > 0 && (
               <div className="flex justify-between py-1">
                 <span className="text-[#5b6b80]">
@@ -779,12 +713,6 @@ export default function ManualReservationForm({
               <div className="flex justify-between py-1">
                 <span className="text-[#5b6b80]">Insurance</span>
                 <strong className="text-[#0f1c2e]">{money(insurance)}</strong>
-              </div>
-            )}
-            {utilitiesAmount > 0 && (
-              <div className="flex justify-between py-1">
-                <span className="text-[#5b6b80]">Utilities</span>
-                <strong className="text-[#0f1c2e]">{money(utilitiesAmount)}</strong>
               </div>
             )}
             <div className="flex justify-between py-1 border-t border-[#e6ebf2] mt-1 pt-2">

@@ -276,7 +276,7 @@ export function StaffRolesPanel({ roles, users, canManage, onAdd, onEdit, onDele
         <div className="card">
           <div className="flex flex-wrap gap-2">
             {Object.keys(ROLE_LABELS)
-              .filter((r) => r !== 'owner' && !r.startsWith('housekeeping') && r !== 'reservations')
+              .filter((r) => r !== 'owner' && r !== 'reservations')
               .map((r) => (
                 <span
                   key={r}

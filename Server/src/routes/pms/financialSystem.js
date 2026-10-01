@@ -146,12 +146,11 @@ async function computeOwnerPeriodBalance(ownerId, from, to) {
     resSql += ` AND ${period} <= $3::date`;
   }
   const { rows: resRows } = await query(
-    `SELECT r.nights, r.price_per_night, r.total_amount, r.utilities_amount,
-            r.broker_total, r.broker_amount_per_night, r.housekeeping_fees,
+    `SELECT r.nights, r.price_per_night, r.total_amount,
+            r.broker_total, r.broker_amount_per_night,
             r.insurance, r.beach_access_fees, r.is_owner_reservation, r.status,
             u.commission_mode, u.company_commission_pct,
-            u.company_commission_owner_pct, u.commission_tenant_pct,
-            COALESCE(u.utilities_cost, 0) AS utilities_cost
+            u.company_commission_owner_pct, u.commission_tenant_pct
      FROM reservations r
      JOIN units u ON u.id = r.unit_id
      WHERE ${resSql}`,
@@ -230,14 +229,13 @@ async function loadOwnerStatementData(from, to, unitId = null) {
 
   const { rows: reservations } = await query(
     `SELECT r.id, r.unit_id, r.nights, r.price_per_night, r.total_amount,
-            r.utilities_amount, r.broker_total, r.broker_amount_per_night,
-            r.housekeeping_fees, r.insurance, r.beach_access_fees,
+            r.broker_total, r.broker_amount_per_night,
+            r.insurance, r.beach_access_fees,
             r.is_owner_reservation, r.status,
             COALESCE(u.unit_number, u.title, 'Unit') AS unit_name,
             COALESCE(u.project, u.compound) AS project,
             u.commission_mode, u.company_commission_pct,
-            u.company_commission_owner_pct, u.commission_tenant_pct,
-            COALESCE(u.utilities_cost, 0) AS utilities_cost
+            u.company_commission_owner_pct, u.commission_tenant_pct
      FROM reservations r
      JOIN units u ON u.id = r.unit_id
      WHERE ${resWhere}`,
@@ -442,7 +440,6 @@ async function loadReservations(req) {
             COALESCE(u.project, u.compound) AS project,
             u.commission_mode, u.company_commission_pct,
             u.company_commission_owner_pct, u.commission_tenant_pct,
-            COALESCE(u.utilities_cost, 0) AS utilities_cost,
             COALESCE(sp.full_name, '—') AS sales_person_name,
             COALESCE(sp.sales_commission_pct, 0) AS agent_commission_pct
      FROM reservations r
@@ -535,9 +532,6 @@ function reservationJournalEntry(r, fin, split) {
   if (split.company_commission > 0) {
     lines.push(journalLine('401000', 0, split.company_commission, 'Management commission'));
   }
-  if (split.cleaning_fee > 0) {
-    lines.push(journalLine('402000', 0, split.cleaning_fee, 'Cleaning & turnover'));
-  }
   if (split.owner_trust_credit > 0) {
     lines.push(journalLine('202000', 0, split.owner_trust_credit, 'Owner trust payable'));
   }
@@ -570,21 +564,16 @@ router.get('/financial-system/overview', requireRoles('admin', 'finance', 'finan
 
     let ownerTrust = 0;
     let commissionRevenue = 0;
-    let cleaningRevenue = 0;
     let guestDeposits = 0;
     let guestReceivable = 0;
     let gatewayClearing = 0;
     const today = new Date().toISOString().slice(0, 10);
 
     for (const r of rows) {
-      const utilitiesAmount =
-        parseFloat(r.utilities_amount) ||
-        (Number(r.nights) || 0) * (parseFloat(r.utilities_cost) || 0);
-      const fin = calcReservationFinancials(r, { ...r, utilities_amount: utilitiesAmount });
+      const fin = calcReservationFinancials(r, r);
       const split = bookingSplit(fin, r);
       ownerTrust += split.owner_trust_credit;
       commissionRevenue += split.company_commission;
-      cleaningRevenue += split.cleaning_fee;
 
       const paid = parseFloat(r.amount_paid) || 0;
       const total = parseFloat(r.total_amount) || 0;
@@ -682,7 +671,6 @@ router.get('/financial-system/overview', requireRoles('admin', 'finance', 'finan
       supplemental: {
         guest_receivable: round2(guestReceivable),
         gateway_clearing: round2(gatewayClearing),
-        cleaning_revenue: round2(cleaningRevenue),
         expenses_payable: round2(expensesPayable),
         petty_cash_out: round2(pettyCash),
         pending_owner_payouts: round2(pendingPayouts),
@@ -704,10 +692,7 @@ router.get('/financial-system/booking-splits', requireRoles('admin', 'finance', 
   try {
     const rows = await loadReservations(req);
     const splits = rows.map((r) => {
-      const utilitiesAmount =
-        parseFloat(r.utilities_amount) ||
-        (Number(r.nights) || 0) * (parseFloat(r.utilities_cost) || 0);
-      const fin = calcReservationFinancials(r, { ...r, utilities_amount: utilitiesAmount });
+      const fin = calcReservationFinancials(r, r);
       return {
         ...bookingSplit(fin, r),
         sales_person: r.sales_person_name,
@@ -978,12 +963,10 @@ router.get('/financial-system/tax', requireRoles('admin', 'finance', 'finance_ma
     const rows = built.reservations || [];
 
     let commissionTotal = 0;
-    let cleaningTotal = 0;
     for (const r of rows) {
       if (String(r.status || '').toLowerCase() === 'cancelled') continue;
       const fin = calcReservationFinancials(r, r);
       commissionTotal += fin.companyCommission || 0;
-      cleaningTotal += fin.housekeepingFees || 0;
     }
 
     const expParams = [from];
@@ -1007,7 +990,6 @@ router.get('/financial-system/tax', requireRoles('admin', 'finance', 'finance_ma
     const monthLabel = to ? `${from} → ${to}` : `From ${from}`;
     const liability = monthlyTaxLiability({
       commissionTotal,
-      cleaningTotal,
       vendorBills,
       monthLabel,
     });
@@ -1019,7 +1001,6 @@ router.get('/financial-system/tax', requireRoles('admin', 'finance', 'finance_ma
       liability,
       vat_return: vat,
       commission_taxable_base: round2(commissionTotal),
-      cleaning_taxable_base: round2(cleaningTotal),
     });
   } catch (e) {
     next(e);
@@ -1245,7 +1226,7 @@ router.get('/financial-system/recurring', requireRoles('admin', 'finance', 'fina
 router.put('/financial-system/recurring/:kind', requireRoles('admin', 'finance', 'finance_manager'), async (req, res, next) => {
   try {
     const kind = String(req.params.kind || '').toLowerCase();
-    if (!['rent', 'utilities', 'buffet'].includes(kind)) {
+    if (!['rent', 'buffet'].includes(kind)) {
       return res.status(400).json({ error: 'Unknown recurring charge' });
     }
     await assertPeriodOpen(new Date().toISOString().slice(0, 10));
@@ -1702,10 +1683,8 @@ function mapCheckinAuditRow(r) {
     amount_paid: paid,
     balance_due: round2(Math.max(0, total - paid)),
     accommodation: round2(parseFloat(r.accommodation) || 0),
-    housekeeping_fees: round2(parseFloat(r.housekeeping_fees) || 0),
     beach_access_fees: round2(parseFloat(r.beach_access_fees) || 0),
     insurance: round2(parseFloat(r.insurance) || 0),
-    utilities_amount: round2(parseFloat(r.utilities_amount) || 0),
     ops_money_collected: Number(r.ops_money_collected) === 1,
     ops_money_collected_amount: collected,
     ops_money_collected_at: r.ops_money_collected_at || null,
@@ -1740,10 +1719,8 @@ router.get('/financial-system/checkin-audit', requireRoles('admin', 'finance', '
                 END,
                 0
               )::float AS accommodation,
-              COALESCE(r.housekeeping_fees, 0)::float AS housekeeping_fees,
               COALESCE(r.beach_access_fees, 0)::float AS beach_access_fees,
               COALESCE(r.insurance, 0)::float AS insurance,
-              COALESCE(r.utilities_amount, 0)::float AS utilities_amount,
               COALESCE(r.ops_money_collected, 0) AS ops_money_collected,
               COALESCE(r.ops_money_collected_amount, 0)::float AS ops_money_collected_amount,
               r.ops_money_collected_at,
@@ -1834,10 +1811,8 @@ router.get('/financial-system/checkin-audit/:id', requireRoles('admin', 'finance
                 END,
                 0
               )::float AS accommodation,
-              COALESCE(r.housekeeping_fees, 0)::float AS housekeeping_fees,
               COALESCE(r.beach_access_fees, 0)::float AS beach_access_fees,
               COALESCE(r.insurance, 0)::float AS insurance,
-              COALESCE(r.utilities_amount, 0)::float AS utilities_amount,
               COALESCE(r.ops_money_collected, 0) AS ops_money_collected,
               COALESCE(r.ops_money_collected_amount, 0)::float AS ops_money_collected_amount,
               r.ops_money_collected_at,
@@ -3115,7 +3090,6 @@ router.get('/financial-system/segment-pnl', requireRoles('admin', 'finance', 'fi
           gross_revenue: 0,
           owner_share: 0,
           commission: 0,
-          cleaning: 0,
           direct_costs: 0,
           count: 0,
         };
@@ -3126,8 +3100,6 @@ router.get('/financial-system/segment-pnl', requireRoles('admin', 'finance', 'fi
       p.gross_revenue += parseFloat(r.total_amount) || 0;
       p.owner_share += Number(fin.ownerNet) || 0;
       p.commission += Number(fin.companyCommission) || 0;
-      p.cleaning += Number(fin.housekeepingFees) || 0;
-      p.direct_costs += Number(fin.housekeepingFees) || 0;
       p.count += 1;
     }
 
@@ -3330,16 +3302,13 @@ router.get('/financial-system/tax-filing-pack/:month', requireRoles('admin', 'fi
 
     // VAT output breakdown
     let commissionBase = 0;
-    let cleaningBase = 0;
     for (const r of reservations) {
       if (String(r.status || '').toLowerCase() === 'cancelled') continue;
       const fin = calcReservationFinancials(r, r);
       commissionBase += Number(fin.companyCommission) || 0;
-      cleaningBase += Number(fin.housekeepingFees) || 0;
     }
     const commissionVat = round2(commissionBase * VAT_OUTPUT_PCT / 100);
-    const cleaningVat = round2(cleaningBase * VAT_OUTPUT_PCT / 100);
-    const totalOutputVat = round2(commissionVat + cleaningVat);
+    const totalOutputVat = commissionVat;
 
     // VAT input breakdown by category
     const expParams = [from, to];
@@ -3354,11 +3323,11 @@ router.get('/financial-system/tax-filing-pack/:month', requireRoles('admin', 'fi
       expenses = rows;
     } catch (_) {}
 
-    const inputCategories = { rent: 0, utilities: 0, professional: 0, software: 0 };
+    const inputCategories = { rent: 0, professional: 0, software: 0 };
     const whtLines = [];
     for (const e of expenses) {
       const amt = parseFloat(e.amount) || 0;
-      if (['rent', 'utilities', 'professional', 'software'].includes(e.category)) {
+      if (['rent', 'professional', 'software'].includes(e.category)) {
         inputCategories[e.category] = round2((inputCategories[e.category] || 0) + round2((amt * VAT_OUTPUT_PCT) / (100 + VAT_OUTPUT_PCT)));
       }
       const whtRate = e.category === 'professional' ? 1 : 3;
@@ -3380,7 +3349,7 @@ router.get('/financial-system/tax-filing-pack/:month', requireRoles('admin', 'fi
       recurring = rows;
     } catch (_) {}
     for (const rec of recurring) {
-      if (rec.kind === 'rent' || rec.kind === 'utilities') {
+      if (rec.kind === 'rent') {
         const amt = Number(rec.amount_egp) || 0;
         const cat = rec.kind;
         inputCategories[cat] = round2((inputCategories[cat] || 0) + round2((amt * VAT_OUTPUT_PCT) / (100 + VAT_OUTPUT_PCT)));
@@ -3410,8 +3379,6 @@ router.get('/financial-system/tax-filing-pack/:month', requireRoles('admin', 'fi
       vat_output: {
         commission_base: round2(commissionBase),
         commission_vat: commissionVat,
-        cleaning_base: round2(cleaningBase),
-        cleaning_vat: cleaningVat,
         total: totalOutputVat,
         rate_pct: VAT_OUTPUT_PCT,
       },

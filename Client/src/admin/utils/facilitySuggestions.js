@@ -5,7 +5,6 @@ export const FACILITY_SUGGESTIONS = [
   'Gated entry',
   'Doorman / bawab',
   'Concierge / customer care',
-  'Housekeeping services',
   'Maintenance services',
   'Backup generator',
   'Elevators',

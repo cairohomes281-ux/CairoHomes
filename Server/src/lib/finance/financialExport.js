@@ -585,7 +585,6 @@ function buildBookingsSheet(reservations = []) {
       'Status',
       'Gross',
       'Commission',
-      'Cleaning',
       'VAT',
       'Owner share',
       'Amount paid',
@@ -609,7 +608,6 @@ function buildBookingsSheet(reservations = []) {
         r.status || '',
         money(split.gross_booking),
         money(split.company_commission),
-        money(split.cleaning_fee),
         money(split.vat_on_commission),
         money(split.owner_trust_credit),
         paid,
@@ -668,29 +666,6 @@ function buildPaymentsSheet(payments = []) {
     );
   }
   if (!payments.length) rows.push(note('No payments in period'));
-  return rows;
-}
-
-function buildHkSheet(orders = []) {
-  const rows = [
-    banner('HOUSEKEEPING'),
-    subtitle('Service orders by created date'),
-    blank(),
-    header('ID', 'Created', 'Period start', 'Client / Unit', 'Amount', 'Status'),
-  ];
-  for (const hk of orders) {
-    rows.push(
-      data(
-        hk.id,
-        iso(hk.created_at),
-        iso(hk.period_start),
-        hk.client_name || hk.unit_number || '',
-        money(hk.amount),
-        hk.status || ''
-      )
-    );
-  }
-  if (!orders.length) rows.push(note('No housekeeping orders in period'));
   return rows;
 }
 
@@ -897,13 +872,12 @@ function buildContentsSheet() {
     data('08 Bookings', 'Reservations with commission / owner splits'),
     data('09 Expenses', 'Operating and unit expenses'),
     data('10 Payments', 'Guest collections and refunds'),
-    data('11 Housekeeping', 'Housekeeping service orders'),
-    data('12 Manual Entries', 'Manual revenue and expense entries'),
-    data('13 Petty Cash', 'Petty cash movements'),
-    data('14 Owner Trust', 'Owner subledger, payouts, holdbacks'),
-    data('15 VAT', 'Output / input VAT return'),
-    data('16 AR Aging', 'Outstanding guest receivables by age'),
-    data('17 Journal', 'Full period journal lines (capped)'),
+    data('11 Manual Entries', 'Manual revenue and expense entries'),
+    data('12 Petty Cash', 'Petty cash movements'),
+    data('13 Owner Trust', 'Owner subledger, payouts, holdbacks'),
+    data('14 VAT', 'Output / input VAT return'),
+    data('15 AR Aging', 'Outstanding guest receivables by age'),
+    data('16 Journal', 'Full period journal lines (capped)'),
     blank(),
     note('Colors follow Cairo Homes brand: navy headers, teal sections, orange totals, green/red for net profit.'),
   ];
@@ -956,22 +930,21 @@ function buildFinancialWorkbook(pack) {
   addSheet(wb, '10 Payments', buildPaymentsSheet(dataBag.payments || []), [
     10, 12, 12, 14, 12, 14, 12, 28,
   ]);
-  addSheet(wb, '11 Housekeeping', buildHkSheet(dataBag.hkOrders || []), [10, 12, 12, 28, 12, 12]);
-  addSheet(wb, '12 Manual Entries', buildManualSheet(dataBag.manuals || []), [
+  addSheet(wb, '11 Manual Entries', buildManualSheet(dataBag.manuals || []), [
     10, 12, 12, 12, 10, 36, 12, 14, 24,
   ]);
-  addSheet(wb, '13 Petty Cash', buildPettySheet(dataBag.petty || []), [
+  addSheet(wb, '12 Petty Cash', buildPettySheet(dataBag.petty || []), [
     10, 12, 12, 10, 12, 14, 32, 10,
   ]);
   addSheet(
     wb,
-    '14 Owner Trust',
+    '13 Owner Trust',
     buildOwnerTrustSheet(trust, portal?.payouts || [], dataBag.holdbacks || portal?.holdbacks || []),
     [14, 24, 12, 12, 12, 12, 12]
   );
-  addSheet(wb, '15 VAT', buildVatSheet(vat), [32, 16]);
-  addSheet(wb, '16 AR Aging', buildAgingSheet(aging), [16, 16, 10, 22, 14, 10]);
-  addSheet(wb, '17 Journal', buildJournalSheet(portal?.journal || []), [
+  addSheet(wb, '14 VAT', buildVatSheet(vat), [32, 16]);
+  addSheet(wb, '15 AR Aging', buildAgingSheet(aging), [16, 16, 10, 22, 14, 10]);
+  addSheet(wb, '16 Journal', buildJournalSheet(portal?.journal || []), [
     12, 18, 14, 36, 10, 28, 12, 12, 24,
   ]);
 

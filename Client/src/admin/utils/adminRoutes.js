@@ -26,9 +26,6 @@ function roleDefaultPage(role) {
     case 'operations':
     case 'operations_supervisor':
       return `${A}/operations`;
-    case 'housekeeping':
-    case 'housekeeping_supervisor':
-      return `${A}/housekeeping`;
     case 'resale':
     case 'resale_manager':
       return `${A}/tasks`;

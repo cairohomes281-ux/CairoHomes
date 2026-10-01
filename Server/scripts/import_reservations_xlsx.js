@@ -77,12 +77,10 @@ function computeTotal(row, nights) {
 
   const nightly = num(row['Price per Night']);
   const stay = nightly > 0 ? nightly * nights : 0;
-  const hk = num(row.Housekeeping);
   const beach = num(row['Beach Pass Total']);
-  const util = num(row.Utilites);
   const ins = num(row.Insurance);
   const service = stay > 0 ? Math.round(stay * 0.15) : 0;
-  const computed = stay + hk + beach + util + ins + service;
+  const computed = stay + beach + ins + service;
   return computed > 0 ? Math.round(computed * 100) / 100 : 0;
 }
 
@@ -112,9 +110,7 @@ function parseRow(row) {
     amountPaid,
     downPayment: down,
     pricePerNight,
-    housekeeping: num(row.Housekeeping),
     beachAccess: num(row['Beach Pass Total']),
-    utilities: num(row.Utilites),
     insurance: num(row.Insurance),
     paymentMethod: normalizePaymentMethod(row['Payment Method']),
     bookingSource: String(row.Source || '').trim() || null,
@@ -209,13 +205,13 @@ function parseRow(row) {
       `INSERT INTO reservations (
          unit_id, guest_name, guest_phone, check_in, check_out, nights,
          total_amount, amount_paid, payment_status, booking_source, sales_person_id,
-         is_owner_reservation, status, created_by, price_per_night, housekeeping_fees,
-         insurance, down_payment, utilities_amount, payment_method, sales_label,
+         is_owner_reservation, status, created_by, price_per_night,
+         insurance, down_payment, payment_method, sales_label,
          beach_access_fees, ops_assigned_to, ops_assigned_at, ops_assigned_by
        ) VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
-         CASE WHEN $23::int IS NOT NULL THEN now() ELSE NULL END,
-         CASE WHEN $23::int IS NOT NULL THEN $14::int ELSE NULL END
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+         CASE WHEN $21::int IS NOT NULL THEN now() ELSE NULL END,
+         CASE WHEN $21::int IS NOT NULL THEN $14::int ELSE NULL END
        )
        RETURNING id`,
       [
@@ -234,10 +230,8 @@ function parseRow(row) {
         parsed.status,
         createdBy,
         parsed.pricePerNight,
-        parsed.housekeeping,
         parsed.insurance,
         parsed.downPayment,
-        parsed.utilities,
         parsed.paymentMethod,
         parsed.salesLabel,
         parsed.beachAccess,

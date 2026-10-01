@@ -27,17 +27,14 @@ export function outputVatOnCommission(commissionBase) {
   };
 }
 
-export function outputVatOnTaxableFees(commission, cleaning) {
+export function outputVatOnTaxableFees(commission) {
   const c = Math.max(0, Number(commission) || 0);
-  const k = Math.max(0, Number(cleaning) || 0);
   const commissionVat = outputVatExclusive(c);
-  const cleaningVat = outputVatExclusive(k);
   return {
     rate_pct: VAT_OUTPUT_PCT,
     commission_vat: commissionVat,
-    cleaning_vat: cleaningVat,
-    vat_amount: round2(commissionVat + cleaningVat),
-    taxable_base: round2(c + k),
+    vat_amount: commissionVat,
+    taxable_base: round2(c),
     account_code: '205000',
   };
 }

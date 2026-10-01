@@ -222,19 +222,9 @@ export default function TransferReservationModal({
                 <span className="tabular-nums">{currency(to.accommodation)}</span>
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-gray-600">Housekeeping</span>
-                <span className="tabular-nums">{currency(to.housekeeping_fees)}</span>
-              </div>
-              <div className="flex justify-between gap-3">
                 <span className="text-gray-600">Beach access</span>
                 <span className="tabular-nums">{currency(to.beach_access_fees)}</span>
               </div>
-              {Number(to.utilities_amount) > 0 ? (
-                <div className="flex justify-between gap-3">
-                  <span className="text-gray-600">Utilities</span>
-                  <span className="tabular-nums">{currency(to.utilities_amount)}</span>
-                </div>
-              ) : null}
               {Number(to.insurance) > 0 ? (
                 <div className="flex justify-between gap-3">
                   <span className="text-gray-600">Insurance</span>

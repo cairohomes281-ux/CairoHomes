@@ -14,7 +14,7 @@ export const CHART_OF_ACCOUNTS = [
   { code: '105000', name: 'Guest Accounts Receivable', group: 'assets', type: 'asset' },
   { code: '106000', name: 'Payment Gateway Clearing (Paymob / Stripe / Fawry)', group: 'assets', type: 'asset' },
   { code: '107000', name: 'VAT Receivable (Input VAT 14%)', group: 'assets', type: 'asset' },
-  { code: '110000', name: 'Accrued Owner Recoverables (Utilities & Maintenance)', group: 'assets', type: 'asset' },
+  { code: '110000', name: 'Accrued Owner Recoverables (Maintenance)', group: 'assets', type: 'asset' },
   { code: '150000', name: 'Fixed Assets - Linens, Towels & Guest Equipment', group: 'assets', type: 'asset' },
   { code: '151000', name: 'Fixed Assets - Smart Locks & Field Tech Hardware', group: 'assets', type: 'asset' },
   { code: '159000', name: 'Accumulated Depreciation - Operating Assets', group: 'assets', type: 'asset', contra: true },
@@ -31,12 +31,10 @@ export const CHART_OF_ACCOUNTS = [
   { code: '303000', name: 'Current Year Profit / Loss', group: 'equity', type: 'equity' },
   { code: '400000', name: 'Gross revenue (reservation totals + custom revenue)', group: 'revenue', type: 'revenue', virtual: true },
   { code: '401000', name: 'Management Fee / Commission Revenue (Agent Split)', group: 'revenue', type: 'revenue' },
-  { code: '402000', name: 'Cleaning & Turnover Fee Revenue', group: 'revenue', type: 'revenue' },
   { code: '403000', name: 'Maintenance Markup & Service Fee Revenue', group: 'revenue', type: 'revenue' },
   { code: '404000', name: 'Direct Rental Revenue (Owned / Master-Leased)', group: 'revenue', type: 'revenue' },
   { code: '409000', name: 'Miscellaneous Guest Revenue (Early Check-in, Extra Amenities)', group: 'revenue', type: 'revenue' },
   { code: '410000', name: 'Insurance Damage Retention Revenue', group: 'revenue', type: 'revenue' },
-  { code: '501000', name: 'Housekeeping & Laundry Direct Costs', group: 'expenses', type: 'expense' },
   { code: '502000', name: 'Guest Welcome Amenities & Refreshments', group: 'expenses', type: 'expense' },
   { code: '503000', name: 'Direct Villa Repairs & Maintenance (Cairo Homes Cost)', group: 'expenses', type: 'expense' },
   { code: '504000', name: 'Merchant / Payment Gateway Transaction Fees', group: 'expenses', type: 'expense' },
@@ -50,7 +48,6 @@ export const CHART_OF_ACCOUNTS = [
   { code: '605000', name: 'Professional, CPA & Legal Fees', group: 'expenses', type: 'expense' },
   { code: '606000', name: 'Depreciation & Amortization', group: 'expenses', type: 'expense' },
   { code: '607000', name: 'Realized & Unrealized Foreign Exchange Gain/Loss', group: 'expenses', type: 'expense' },
-  { code: '608000', name: 'Company Campus Utilities', group: 'expenses', type: 'expense', recurring: 'utilities' },
   { code: '609000', name: 'Sales Agent Commission Expense', group: 'expenses', type: 'expense' },
 ];
 
@@ -78,8 +75,6 @@ export function signedBalance(type, debit, credit, contra = false) {
 }
 
 export const EXPENSE_CATEGORY_TO_ACCOUNT = {
-  housekeeping_cost: '501000',
-  utilities_cost: '608000',
   salary: '602000',
   marketing: '603000',
   maintenance: '503000',
@@ -93,4 +88,4 @@ export const EXPENSE_CATEGORY_TO_ACCOUNT = {
 
 export const TREASURY_CODES = ['101000', '102000', '103000', '104000'];
 export const KPI_ACCOUNTS = ['owner_trust', 'guest_deposits', 'commission', 'vat_payable', 'wht_payable'];
-export const INPUT_VAT_CATEGORIES = ['professional', 'software', 'rent', 'utilities_cost'];
+export const INPUT_VAT_CATEGORIES = ['professional', 'software', 'rent'];

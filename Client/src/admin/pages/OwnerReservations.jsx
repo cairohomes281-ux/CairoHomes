@@ -17,7 +17,7 @@ export default function OwnerReservations() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Reservations</h1>
         <p className="text-sm text-gray-500">
-          Nights amount only (no utilities, housekeeping, or service fees). Guest identity is never
+          Nights amount only (no service fees). Guest identity is never
           shown.
         </p>
       </div>

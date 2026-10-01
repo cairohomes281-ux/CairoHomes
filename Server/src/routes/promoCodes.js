@@ -1,22 +1,24 @@
 const express = require('express');
-const { validatePromo, normalizeCode } = require('../lib/promoCodes');
+const { validatePromo, normalizeCode, loadPromoUnit } = require('../lib/promoCodes');
 const { optionalGuest } = require('../middleware/auth');
 
 const router = express.Router();
 
 router.post('/validate', optionalGuest, async (req, res, next) => {
   try {
-    const { code, amount, email, phone } = req.body || {};
+    const { code, amount, email, phone, unit_id, slug } = req.body || {};
     if (!normalizeCode(code)) {
       return res.status(400).json({ valid: false, error: 'Promo code is required' });
     }
 
+    const unit = await loadPromoUnit({ unitId: unit_id, slug });
     const result = await validatePromo({
       code,
       amount,
       email: email || req.guest?.email,
       phone,
       guestId: req.guest?.id,
+      unit,
     });
 
     res.json({
@@ -29,7 +31,7 @@ router.post('/validate', optionalGuest, async (req, res, next) => {
       once_per_guest: result.once_per_guest,
     });
   } catch (err) {
-    if (err.status === 404 || err.status === 409) {
+    if (err.status === 404 || err.status === 409 || err.status === 422) {
       return res.status(err.status).json({ valid: false, error: err.message });
     }
     next(err);

@@ -25,7 +25,6 @@ import {
   CircleDollarSign,
   CreditCard,
   Home,
-  Zap,
   UtensilsCrossed,
   Users,
   AlertCircle,
@@ -108,7 +107,6 @@ const ACCOUNT_ICONS = {
   '506000': Users,
   '508000': UtensilsCrossed,
   '604000': Home,
-  '608000': Zap,
   '609000': Users,
 };
 
@@ -877,7 +875,7 @@ function RecurringTool() {
 
   if (isLoading) return <LoadingSpinner />;
 
-  const icons = { rent: Home, utilities: Zap, buffet: UtensilsCrossed };
+  const icons = { rent: Home, buffet: UtensilsCrossed };
 
   return (
     <div className="space-y-4">
@@ -1002,11 +1000,6 @@ function TaxTab({ rangeParams: params }) {
                     <td>{t('pms.fin.tax.commissionRevenue')}</td>
                     <td className="text-right tabular-nums">{currency(packData?.vat_output?.commission_base)}</td>
                     <td className="text-right tabular-nums">{currency(packData?.vat_output?.commission_vat)}</td>
-                  </tr>
-                  <tr>
-                    <td>{t('pms.fin.tax.cleaningRevenue')}</td>
-                    <td className="text-right tabular-nums">{currency(packData?.vat_output?.cleaning_base)}</td>
-                    <td className="text-right tabular-nums">{currency(packData?.vat_output?.cleaning_vat)}</td>
                   </tr>
                 </tbody>
                 <tfoot>
@@ -2712,10 +2705,6 @@ function CheckinAuditTool() {
                 <p className="tabular-nums">{currency(detail.accommodation)}</p>
               </div>
               <div>
-                <p className="text-[11px] text-gray-400">{t('pms.fin.checkinAudit.housekeeping')}</p>
-                <p className="tabular-nums">{currency(detail.housekeeping_fees)}</p>
-              </div>
-              <div>
                 <p className="text-[11px] text-gray-400">{t('pms.fin.checkinAudit.insurance')}</p>
                 <p className="tabular-nums">{currency(detail.insurance)}</p>
               </div>
@@ -3845,7 +3834,6 @@ function VendorsTool({ rangeParams: params }) {
   const VENDOR_CATEGORIES = [
     { value: 'general', label: t('pms.fin.vendors.general') },
     { value: 'professional', label: t('pms.fin.vendors.professional') },
-    { value: 'utilities', label: t('pms.fin.vendors.utilities') },
     { value: 'rent', label: t('pms.fin.vendors.rent') },
     { value: 'maintenance', label: t('pms.fin.vendors.maintenanceCat') },
     { value: 'software', label: t('pms.fin.vendors.software') },

@@ -24,7 +24,6 @@ const Profile = lazy(() => import('./pages/Profile'));
 const CalendarSync = lazy(() => import('./pages/CalendarSync'));
 const OtaInbox = lazy(() => import('./pages/OtaInbox'));
 const Schedule = lazy(() => import('./pages/Schedule'));
-const Housekeeping = lazy(() => import('./pages/Housekeeping'));
 const Operations = lazy(() => import('./pages/Operations'));
 const Projects = lazy(() => import('./pages/Projects'));
 const ChangePassword = lazy(() => import('./pages/ChangePassword'));
@@ -92,14 +91,6 @@ function LegacyOpsRedirect({ tab }) {
   return <Navigate to={`/admin/operations${suffix}`} replace />;
 }
 
-function LegacyHousekeepingRedirect({ tab }) {
-  const location = useLocation();
-  const opsTab =
-    tab === 'today' ? 'cleans' : tab === 'history' ? 'cleans-history' : tab || 'cleans';
-  const suffix = `?tab=${opsTab}${location.search ? `&${location.search.slice(1)}` : ''}`;
-  return <Navigate to={`/admin/operations${suffix}`} replace />;
-}
-
 function AppRoutes() {
   return (
     <Routes>
@@ -135,7 +126,6 @@ function AppRoutes() {
       <Route path="petty-cash" element={<LegacyFinanceRedirect tab="petty-cash" />} />
       <Route path="owner-settlements" element={<LegacyFinanceRedirect tab="owners" />} />
       <Route path="owner-statement" element={<ProtectedRoute page="owner_statement"><OwnerStatement /></ProtectedRoute>} />
-      <Route path="utilities" element={<LegacyFinanceRedirect tab="ledger" />} />
       <Route path="marketing" element={<LegacyFinanceRedirect tab="ledger" />} />
       <Route path="salaries" element={<LegacyFinanceRedirect tab="ledger" />} />
       <Route path="invoices" element={<LegacyFinanceRedirect tab="overview" />} />
@@ -146,11 +136,6 @@ function AppRoutes() {
       <Route path="cashflow" element={<LegacyFinanceRedirect tab="ledger" />} />
 
       <Route path="operations" element={<ProtectedRoute page="operations"><Operations /></ProtectedRoute>} />
-      <Route path="housekeeping" element={<ProtectedRoute page="housekeeping"><Housekeeping /></ProtectedRoute>} />
-
-      
-      <Route path="housekeeping/today" element={<LegacyHousekeepingRedirect tab="today" />} />
-      <Route path="housekeeping/history" element={<LegacyHousekeepingRedirect tab="history" />} />
       <Route path="ops/checkins-today" element={<LegacyOpsRedirect tab="today" />} />
       <Route path="ops/checkins-history" element={<LegacyOpsRedirect tab="history" />} />
       <Route path="ops/checkin-comments" element={<LegacyOpsRedirect tab="comments" />} />

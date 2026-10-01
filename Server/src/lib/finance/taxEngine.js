@@ -30,19 +30,15 @@ function outputVatOnCommission(commissionBase) {
   };
 }
 
-function outputVatOnTaxableFees(commission, cleaning) {
+function outputVatOnTaxableFees(commission) {
   const c = Math.max(0, Number(commission) || 0);
-  const k = Math.max(0, Number(cleaning) || 0);
   const commissionVat = outputVatExclusive(c);
-  const cleaningVat = outputVatExclusive(k);
   return {
     rate_pct: VAT_OUTPUT_PCT,
     commission_net: round2(c),
-    cleaning_net: round2(k),
     commission_vat: commissionVat,
-    cleaning_vat: cleaningVat,
-    vat_amount: round2(commissionVat + cleaningVat),
-    taxable_base: round2(c + k),
+    vat_amount: commissionVat,
+    taxable_base: round2(c),
     account_code: '205000',
   };
 }
@@ -60,25 +56,21 @@ function withholdingTax(vendorBillAmount, { ratePct = WHT_STANDARD_PCT } = {}) {
 
 function bookingSplit(fin, reservation) {
   const gross = fin.grossAmount || 0;
-  const cleaning = fin.housekeepingFees || 0;
   const commission = fin.companyCommission || 0;
   const ownerNet = fin.ownerNet || 0;
-  const vat = outputVatOnTaxableFees(commission, cleaning);
+  const vat = outputVatOnTaxableFees(commission);
 
   return {
-    gross_booking: round2(gross + cleaning),
+    gross_booking: round2(gross),
     accommodation: round2(gross),
     company_commission: round2(commission),
     company_commission_pct: fin.appliedCommissionPct || 0,
-    cleaning_fee: round2(cleaning),
     vat_on_commission: vat.vat_amount,
     vat_pct: VAT_OUTPUT_PCT,
     commission_vat: vat.commission_vat,
-    cleaning_vat: vat.cleaning_vat,
     owner_trust_credit: round2(ownerNet),
     owner_trust_account: '202000',
     commission_revenue_account: '401000',
-    cleaning_revenue_account: '402000',
     guest_name: reservation.guest_name,
     unit_name: reservation.unit_name,
     project: reservation.project,
@@ -88,8 +80,8 @@ function bookingSplit(fin, reservation) {
   };
 }
 
-function monthlyTaxLiability({ commissionTotal, cleaningTotal = 0, vendorBills = [], monthLabel }) {
-  const vat = outputVatOnTaxableFees(commissionTotal, cleaningTotal);
+function monthlyTaxLiability({ commissionTotal, vendorBills = [], monthLabel }) {
+  const vat = outputVatOnTaxableFees(commissionTotal);
   const whtLines = vendorBills.map((bill) => ({
     vendor: bill.vendor || bill.description || 'Vendor',
     amount: bill.amount,

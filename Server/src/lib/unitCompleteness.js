@@ -5,11 +5,6 @@ function hasText(v) {
   return String(v || '').trim().length > 0;
 }
 
-function hasNumberSet(v) {
-  if (v === undefined || v === null || v === '') return false;
-  return Number.isFinite(Number(v));
-}
-
 function hasPhotos(unit) {
   if (hasText(unit.cover_url)) return true;
   if (Array.isArray(unit.photo_urls) && unit.photo_urls.some((u) => hasText(u))) return true;
@@ -47,7 +42,6 @@ function assessUnitCompleteness(unit, { hasPrice = false } = {}) {
     if (!hasPrice && !(Number(unit.price_fallback || unit.price_per_night) > 0)) {
       missing.push('price (fallback or daily rates)');
     }
-    if (!hasNumberSet(unit.utilities_cost)) missing.push('utilities cost');
     // Beach access is configured on the project, not the unit.
   }
 

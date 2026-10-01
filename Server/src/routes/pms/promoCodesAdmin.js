@@ -15,6 +15,30 @@ function mapPromo(row) {
     used_count: Number(row.used_count) || 0,
     once_per_guest: row.once_per_guest !== false,
     redemption_count: row.redemption_count != null ? Number(row.redemption_count) : undefined,
+    scope_destinations: row.scope_destinations || [],
+    scope_projects: row.scope_projects || [],
+    scope_unit_ids: row.scope_unit_ids || [],
+  };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseLabelList(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((v) => String(v || '').trim()).filter(Boolean))];
+}
+
+function parseUnitIds(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((v) => String(v || '').trim()).filter((v) => UUID_RE.test(v)))];
+}
+
+function scopeFromBody(b, existing = {}) {
+  return {
+    destinations:
+      b.scope_destinations !== undefined ? parseLabelList(b.scope_destinations) : existing.scope_destinations || [],
+    projects: b.scope_projects !== undefined ? parseLabelList(b.scope_projects) : existing.scope_projects || [],
+    unitIds: b.scope_unit_ids !== undefined ? parseUnitIds(b.scope_unit_ids) : existing.scope_unit_ids || [],
   };
 }
 
@@ -82,11 +106,12 @@ router.post('/promo-codes', requireRoles('admin'), async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid expiry date' });
     }
 
+    const scope = scopeFromBody(b);
     const { rows } = await query(
       `INSERT INTO promo_codes
          (code, discount_percent, discount_amount, active, expires_at, max_uses,
-          description, once_per_guest, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
+          description, once_per_guest, scope_destinations, scope_projects, scope_unit_ids, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::uuid[],now())
        RETURNING *`,
       [
         code,
@@ -99,6 +124,9 @@ router.post('/promo-codes', requireRoles('admin'), async (req, res, next) => {
         b.once_per_guest === false || b.once_per_guest === 0 || b.once_per_guest === '0'
           ? false
           : true,
+        scope.destinations,
+        scope.projects,
+        scope.unitIds,
       ]
     );
     res.status(201).json(mapPromo(rows[0]));
@@ -178,6 +206,7 @@ router.put('/promo-codes/:id', requireRoles('admin'), async (req, res, next) => 
         ? !(b.once_per_guest === false || b.once_per_guest === 0 || b.once_per_guest === '0')
         : existing[0].once_per_guest !== false;
 
+    const scope = scopeFromBody(b, existing[0]);
     const { rows } = await query(
       `UPDATE promo_codes SET
          code = $2,
@@ -188,6 +217,9 @@ router.put('/promo-codes/:id', requireRoles('admin'), async (req, res, next) => 
          max_uses = $7,
          description = $8,
          once_per_guest = $9,
+         scope_destinations = $10,
+         scope_projects = $11,
+         scope_unit_ids = $12::uuid[],
          updated_at = now()
        WHERE id = $1
        RETURNING *`,
@@ -205,6 +237,9 @@ router.put('/promo-codes/:id', requireRoles('admin'), async (req, res, next) => 
             : null
           : existing[0].description,
         oncePerGuest,
+        scope.destinations,
+        scope.projects,
+        scope.unitIds,
       ]
     );
     res.json(mapPromo(rows[0]));

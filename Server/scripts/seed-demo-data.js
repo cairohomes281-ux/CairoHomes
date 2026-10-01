@@ -367,7 +367,6 @@ async function resetDemo() {
   const wpIds = demoUnits.map((u) => u.wp_post_id).filter(Boolean);
   if (unitIds.length) {
     await query(`DELETE FROM payments WHERE reservation_id IN (SELECT id FROM reservations WHERE unit_id = ANY($1::uuid[]))`, [unitIds]);
-    await query(`DELETE FROM housekeeping_tasks WHERE unit_id = ANY($1::uuid[])`, [unitIds]);
     await query(`DELETE FROM maintenance_tickets WHERE unit_id = ANY($1::uuid[])`, [unitIds]);
     await query(`DELETE FROM reservations WHERE unit_id = ANY($1::uuid[])`, [unitIds]);
     await query(`DELETE FROM reviews WHERE unit_id = ANY($1::uuid[])`, [unitIds]);
@@ -460,23 +459,22 @@ async function seedUnits(adminId, ownerIds) {
          slug, title, status, source, source_code, compound, project, area, city, lat, lng,
          view, floor, property_type, beds, baths, guests, size_m2, cover_url, photo_urls,
          short_description, the_property, neighborhood, getting_around, amenities,
-         price_fallback, price_monthly_egp, cleaning_fee_egp, security_deposit_egp, utilities_cost,
+         price_fallback, price_monthly_egp, security_deposit_egp,
          featured, min_nights, listing_type, unit_number, internal_code, owner_name, owner_email, owner_phone,
          source_url, location_link, ops_status, created_by_staff, company_commission_pct
        ) VALUES (
          $1,$2,$3,'manual',$4,$5,$5,$6,'Cairo',$7,$8,
          $9,$10,$11,$12,$13,$14,$15,$16,$17,
          $18,$19,$20,$21,$22,
-         $23,$24,$25,$26,$27,
-         $28,$29,$30,$31,$31,$32,$33,$34,
-         $35,$35,'available',$36,20
+         $23,$24,$25,
+         $26,$27,$28,$29,$29,$30,$31,$32,
+         $33,$33,'available',$34,20
        ) RETURNING id, wp_post_id, slug, title, compound, area, price_fallback, guests, min_nights, listing_type`,
       [
         u.slug, u.title, u.draft ? 'draft' : 'published', DEMO_TAG, u.compound, u.area, u.lat, u.lng,
         u.view, String(u.floor), u.type, u.beds, u.baths, u.guests, u.size, photos[0] || null, photos,
         u.short, u.body, u.hood, u.around, u.draft ? [] : [...BASE_AMENITIES, ...u.extra],
-        longTerm ? null : u.price, longTerm ? u.monthly : null, longTerm ? 0 : 350, longTerm ? u.monthly : 3000,
-        longTerm ? 0 : 150,
+        longTerm ? null : u.price, longTerm ? u.monthly : null, longTerm ? u.monthly : 3000,
         u.featured, longTerm ? 30 : PROJECTS.find((p) => p.name === u.compound)?.min_nights || 1,
         longTerm ? 'long_term' : 'rent', u.unit_number, owner.full_name, owner.email, owner.phone,
         `https://maps.google.com/?q=${u.lat},${u.lng}`, adminId,
@@ -547,8 +545,7 @@ async function seedReservations(units, adminId, staffIds) {
       else status = rand() < 0.2 ? 'pending' : 'confirmed';
 
       const ppn = longTerm ? Math.round(u.def.monthly / 30) : u.def.price;
-      const hkFees = longTerm ? 0 : 350;
-      const total = ppn * nights + hkFees;
+      const total = ppn * nights;
       let paid = 0;
       if (status === 'checked_out' || status === 'checked_in') paid = rand() < 0.85 ? total : Math.round(total * 0.5);
       else if (status === 'confirmed') paid = rand() < 0.5 ? Math.round(total * 0.3) : total;
@@ -562,16 +559,16 @@ async function seedReservations(units, adminId, staffIds) {
         `INSERT INTO reservations (
            unit_id, guest_name, guest_email, guest_phone, guest_nationality, check_in, check_out, nights,
            total_amount, amount_paid, payment_status, booking_source, sales_person_id, status, notes,
-           created_by, price_per_night, housekeeping_fees, insurance, down_payment, payment_method,
+           created_by, price_per_night, insurance, down_payment, payment_method,
            adults, children, broker_name, broker_amount_per_night, broker_total,
            channel_commission_pct, channel_commission_amount, created_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
          RETURNING id`,
         [
           u.id, guestName, emailFor(guestName), phoneFor(guestIdx), nationality, isoDate(checkIn), isoDate(checkOut), nights,
           total, paid, paymentStatus, source, pick(agents), status,
           cancelled ? 'Guest cancelled — plans changed.' : null,
-          adminId, ppn, hkFees, longTerm ? 0 : 2000, paid > 0 && paid < total ? paid : 0, method,
+          adminId, ppn, longTerm ? 0 : 2000, paid > 0 && paid < total ? paid : 0, method,
           adults, children,
           source === 'Broker' ? 'Nile Brokers' : null,
           source === 'Broker' ? Math.round(ppn * 0.05) : null,
@@ -627,13 +624,6 @@ async function seedOps(units, reservations, adminId, staffIds) {
     (r) => ['confirmed', 'pending'].includes(r.status) && r.checkIn <= addDays(TODAY, 7)
   );
   for (const r of upcoming) {
-    const due = new Date(r.checkIn);
-    due.setUTCHours(10, 0, 0, 0);
-    await query(
-      `INSERT INTO housekeeping_tasks (reservation_id, unit_id, assigned_to, status, due_at, source, assigned_at, assigned_by, notes)
-       VALUES ($1,$2,$3,$4,$5,'pre_arrival',now(),$6,$7)`,
-      [r.id, r.unit.id, staffIds.operations, rand() < 0.5 ? 'accepted' : 'pending', due.toISOString(), staffIds.operations_supervisor, `Prepare for ${r.guestName}`]
-    );
     await query(
       `UPDATE reservations SET ops_assigned_to = $2, ops_assigned_at = now(), ops_assigned_by = $3 WHERE id = $1`,
       [r.id, staffIds.operations, staffIds.operations_supervisor]
@@ -658,10 +648,6 @@ async function seedOps(units, reservations, adminId, staffIds) {
   const expenses = [
     ['Instagram & Meta ads — Cairo stays campaign', 18000, 'marketing', null, -20],
     ['Google Ads — Zamalek & Garden City', 9500, 'marketing', null, -8],
-    ['Deep cleaning — penthouse', 1800, 'housekeeping_cost', 'zamalek-nile-terrace-penthouse', -15],
-    ['Linen replacement set', 4200, 'housekeeping_cost', 'garden-city-belle-epoque-apartment', -30],
-    ['Electricity bill', 2350, 'utilities_cost', 'allegria-golf-villa', -12],
-    ['Internet subscription (10 units)', 5500, 'utilities_cost', null, -5],
     ['Office supplies', 1300, 'other', null, -3],
     ['Welcome baskets (monthly)', 3600, 'other', null, -1],
   ];
@@ -708,7 +694,7 @@ async function seedOps(units, reservations, adminId, staffIds) {
 
   const jobs = [
     ['Guest Experience Specialist', 'Reservations', 'Zamalek, Cairo', 'Be the voice of Cairo Homes on WhatsApp and phone, from first question to checkout.'],
-    ['Housekeeping Supervisor', 'Operations', 'Cairo (field)', 'Lead our housekeeping team and keep every home hotel-ready.'],
+    ['Operations Coordinator', 'Operations', 'Cairo (field)', 'Coordinate check-ins and keep every home guest-ready.'],
     ['Performance Marketing Executive', 'Marketing', 'Hybrid · Cairo', 'Run paid social and search campaigns for our Cairo portfolio.'],
   ];
   for (const [title, department, location, description] of jobs) {
@@ -725,7 +711,7 @@ async function seedOps(units, reservations, adminId, staffIds) {
   );
 
   console.log(
-    `[seed] housekeeping: ${upcoming.length}, maintenance: ${tickets.length}, expenses: ${expenses.length}, inquiries: ${inquiries.length}, leads: ${leads.length}, jobs: ${jobs.length}, promo: 1`
+    `[seed] ops assignments: ${upcoming.length}, maintenance: ${tickets.length}, expenses: ${expenses.length}, inquiries: ${inquiries.length}, leads: ${leads.length}, jobs: ${jobs.length}, promo: 1`
   );
 }
 

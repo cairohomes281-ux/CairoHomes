@@ -27,8 +27,15 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export async function validatePromoCode({ code, amount, email, phone }) {
-  const { data } = await api.post('/promo-codes/validate', { code, amount, email, phone });
+export async function validatePromoCode({ code, amount, email, phone, unitId, slug }) {
+  const { data } = await api.post('/promo-codes/validate', {
+    code,
+    amount,
+    email,
+    phone,
+    unit_id: unitId,
+    slug,
+  });
   if (!data?.valid) throw new Error(data?.error || 'Invalid promo code');
   return {
     code: data.code,

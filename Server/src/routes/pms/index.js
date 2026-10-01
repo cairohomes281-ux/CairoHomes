@@ -11,7 +11,6 @@ const {
   FOLDER_ID_DOCS,
 } = require('../../config/cloudinary');
 const compat = require('./compat');
-const housekeepingOps = require('./housekeepingOps');
 const ownerPortal = require('./ownerPortal');
 const roadmapScaffold = require('./roadmapScaffold');
 const {
@@ -134,7 +133,6 @@ router.use(require('./reservationAudit'));
 router.use(require('./siteHealth'));
 router.use(require('./staffTasks'));
 router.use(require('./financialSystem'));
-router.use(housekeepingOps);
 router.use(require('./opsCheckins'));
 router.use(ownerPortal);
 router.use(roadmapScaffold);
@@ -1097,8 +1095,8 @@ router.get('/units', async (req, res, next) => {
               size_m2, floor, view, property_type, wp_post_id, cover_url, photo_urls, amenities,
               short_description, the_property, source_url, other_details, owner_name, owner_email,
               owner_phone, commission_mode, company_commission_pct, company_commission_owner_pct,
-              commission_tenant_pct, utilities_cost, internal_code, unit_number, price_fallback,
-              cleaning_fee_egp, service_fee_percent, security_deposit_egp,
+              commission_tenant_pct, internal_code, unit_number, price_fallback,
+              service_fee_percent, security_deposit_egp,
               access_fee_per_adult_egp, access_fee_per_teen_egp, access_card_count_included,
               min_nights, ical_url, notes, listing_type, has_nanny_room, price_monthly_egp,
               disable_automatic_reservations, created_at
@@ -1133,9 +1131,7 @@ router.post('/units', requireRoles(...UNIT_EDITOR_ROLES), async (req, res, next)
     if (!title) return res.status(400).json({ error: 'Unit name is required' });
     if (!compound) return res.status(400).json({ error: 'Project is required' });
 
-    const { housekeepingFeeForType } = require('../../lib/housekeeping');
     const propertyType = normalizePropertyType(toText(b.property_type || b.type));
-    const cleaningFee = housekeepingFeeForType(propertyType);
     const listingType = normalizeListingType(b.listing_type);
     const isLongTerm = listingType === LONG_TERM;
     if (isLongTerm && !canManageLongTermUnits(req.user)) {
@@ -1185,7 +1181,6 @@ router.post('/units', requireRoles(...UNIT_EDITOR_ROLES), async (req, res, next)
           project: toText(b.project || b.projectName || b.compound, compound),
           compound,
         });
-    const utilitiesCost = toNum(b.utilities_cost);
     const unitNumber = normalizeUnitNumber(b.unit_number);
     const view = toText(b.view);
     const floorRaw = b.floor != null && b.floor !== '' ? b.floor : null;
@@ -1211,7 +1206,6 @@ router.post('/units', requireRoles(...UNIT_EDITOR_ROLES), async (req, res, next)
         min_nights: minNights,
         price_fallback: priceFallback,
         price_monthly_egp: priceMonthly,
-        utilities_cost: utilitiesCost,
         the_property: description,
         description,
         amenities,
@@ -1230,15 +1224,15 @@ router.post('/units', requireRoles(...UNIT_EDITOR_ROLES), async (req, res, next)
          cover_url, photo_urls, amenities, other_details, short_description, the_property,
          owner_name, owner_email, owner_phone,
          company_commission_pct, company_commission_owner_pct, commission_mode, commission_tenant_pct,
-         utilities_cost, ops_status, unit_number, internal_code, created_by_staff, price_fallback,
-         property_type, view, floor, source_url, min_nights, cleaning_fee_egp,
+         ops_status, unit_number, internal_code, created_by_staff, price_fallback,
+         property_type, view, floor, source_url, min_nights,
          access_fee_per_adult_egp, access_fee_per_teen_egp, access_card_count_included,
          listing_type, has_nanny_room, disable_automatic_reservations, price_monthly_egp
        ) VALUES (
          $1,$2,COALESCE($3,'draft'),'manual',$4,COALESCE($5,$4),COALESCE($6,'Cairo'),
          $7,$8,$9,$10,$11,COALESCE($12::text[], '{}'::text[]),COALESCE($13::text[], '{}'::text[]),$14,$15,$16,
-         $17,$18,$19,$20,$21,$22,$23,$24,COALESCE($25,'available'),$26,$27,$28,$29,
-         $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42
+         $17,$18,$19,$20,$21,$22,$23,COALESCE($24,'available'),$25,$26,$27,$28,
+         $29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40
        ) RETURNING *`,
       [
         slug,
@@ -1268,7 +1262,6 @@ router.post('/units', requireRoles(...UNIT_EDITOR_ROLES), async (req, res, next)
         toNum(b.company_commission_owner_pct, { fallback: 10 }),
         b.commission_mode || 'A',
         toNum(b.commission_tenant_pct, { fallback: 0 }),
-        utilitiesCost,
         b.ops_status || (['available', 'occupied', 'maintenance'].includes(b.status) ? b.status : 'available'),
         unitNumber,
         toText(b.internal_code || b.uniqueId),
@@ -1279,7 +1272,6 @@ router.post('/units', requireRoles(...UNIT_EDITOR_ROLES), async (req, res, next)
         floorRaw != null ? String(floorRaw) : null,
         locationLink,
         minNights,
-        cleaningFee,
         beachPrice,
         beachExtra,
         beachDays,
@@ -1327,10 +1319,6 @@ async function updateUnitHandler(req, res, next) {
     const amenities = b.amenities == null ? null : normalizeTagList(b.amenities);
     
     const facilities = undefined;
-    const { housekeepingFeeForType } = require('../../lib/housekeeping');
-
-    
-    
     const listingStatus = null;
     const opsStatus = b.ops_status
       || (['available', 'occupied', 'maintenance'].includes(b.status) ? b.status : null);
@@ -1348,7 +1336,7 @@ async function updateUnitHandler(req, res, next) {
     const { rows: existingRows } = await query(
       `SELECT other_details, price_fallback, wp_post_id, property_type, status,
               project, compound, area, beds, listing_type, size_m2,
-              utilities_cost, cover_url, photo_urls, min_nights
+              cover_url, photo_urls, min_nights
        FROM units WHERE id = $1`,
       [req.params.id]
     );
@@ -1357,10 +1345,6 @@ async function updateUnitHandler(req, res, next) {
     const listingType = normalizeListingType(existingRows[0].listing_type);
     const isLongTerm = listingType === LONG_TERM;
 
-    const propertyType = normalizePropertyType(
-      toText(b.property_type || b.type) || existingRows[0].property_type
-    );
-    const cleaningFee = housekeepingFeeForType(propertyType);
     const nextProject = normalizeProjectName(
       toText(b.project || b.projectName || b.compound) ||
         existingRows[0].project ||
@@ -1472,25 +1456,23 @@ async function updateUnitHandler(req, res, next) {
          company_commission_pct = COALESCE($20, company_commission_pct),
          company_commission_owner_pct = COALESCE($21, company_commission_owner_pct),
          commission_tenant_pct = COALESCE($22, commission_tenant_pct),
-         utilities_cost = COALESCE($23, utilities_cost),
-         ops_status = COALESCE($24, ops_status),
-         unit_number = COALESCE($25, unit_number),
-         internal_code = COALESCE($26, internal_code),
-         price_fallback = COALESCE($27, price_fallback),
-         property_type = COALESCE($28, property_type),
-         view = COALESCE($29, view),
-         floor = COALESCE($30, floor),
-         source_url = COALESCE($31, source_url),
-         min_nights = $32,
-         access_fee_per_adult_egp = COALESCE($33, access_fee_per_adult_egp),
-         access_fee_per_teen_egp = COALESCE($34, access_fee_per_teen_egp),
-         access_card_count_included = COALESCE($35, access_card_count_included),
-         cleaning_fee_egp = $36,
-         has_nanny_room = COALESCE($38, has_nanny_room),
-         disable_automatic_reservations = COALESCE($39, disable_automatic_reservations),
-         price_monthly_egp = CASE WHEN $40::boolean THEN $41::numeric ELSE price_monthly_egp END,
+         ops_status = COALESCE($23, ops_status),
+         unit_number = COALESCE($24, unit_number),
+         internal_code = COALESCE($25, internal_code),
+         price_fallback = COALESCE($26, price_fallback),
+         property_type = COALESCE($27, property_type),
+         view = COALESCE($28, view),
+         floor = COALESCE($29, floor),
+         source_url = COALESCE($30, source_url),
+         min_nights = $31,
+         access_fee_per_adult_egp = COALESCE($32, access_fee_per_adult_egp),
+         access_fee_per_teen_egp = COALESCE($33, access_fee_per_teen_egp),
+         access_card_count_included = COALESCE($34, access_card_count_included),
+         has_nanny_room = COALESCE($36, has_nanny_room),
+         disable_automatic_reservations = COALESCE($37, disable_automatic_reservations),
+         price_monthly_egp = CASE WHEN $38::boolean THEN $39::numeric ELSE price_monthly_egp END,
          updated_at = now()
-       WHERE id = $37 RETURNING *`,
+       WHERE id = $35 RETURNING *`,
       [
         toText(b.title || b.name),
         listingStatus,
@@ -1528,7 +1510,6 @@ async function updateUnitHandler(req, res, next) {
         toNum(b.company_commission_pct),
         toNum(b.company_commission_owner_pct),
         toNum(b.commission_tenant_pct),
-        toNum(b.utilities_cost),
         opsStatus,
         b.unit_number !== undefined ? normalizeUnitNumber(b.unit_number) : null,
         b.internal_code !== undefined ? toText(b.internal_code) : null,
@@ -1545,7 +1526,6 @@ async function updateUnitHandler(req, res, next) {
         beachPrice,
         beachExtra,
         beachDays,
-        cleaningFee,
         req.params.id,
         b.has_nanny_room !== undefined ? truthyNanny(b.has_nanny_room) : null,
         !isLongTerm && b.disable_automatic_reservations !== undefined
@@ -1695,12 +1675,6 @@ router.delete('/units/:id', requireRoles('admin', ...UNIT_ACQUISITION_ROLES), as
         );
         await query(`DELETE FROM commissions WHERE reservation_id = ANY($1::int[])`, [resIds]);
         await query(`DELETE FROM payments WHERE reservation_id = ANY($1::int[])`, [resIds]);
-        try {
-          await query(
-            `DELETE FROM housekeeping_tasks WHERE reservation_id = ANY($1::int[])`,
-            [resIds]
-          );
-        } catch (_) {}
         await query(`DELETE FROM reservations WHERE unit_id = $1`, [unitId]);
       }
 
@@ -1881,7 +1855,6 @@ router.get('/reservations', async (req, res, next) => {
               u.slug AS unit_slug,
               u.unit_number,
               u.compound AS project,
-              u.utilities_cost AS unit_utilities_cost,
               u.commission_mode,
               u.company_commission_pct,
               u.company_commission_owner_pct,
@@ -1904,16 +1877,10 @@ router.get('/reservations', async (req, res, next) => {
       rows.map((r) => {
         const total = parseFloat(r.total_amount) || 0;
         const paid = parseFloat(r.amount_paid) || 0;
-        const down = parseFloat(r.down_payment) || 0;
-        const utilities =
-          r.utilities_amount != null && r.utilities_amount !== ''
-            ? parseFloat(r.utilities_amount) || 0
-            : 0;
         const cancelled = String(r.status || '').toLowerCase() === 'cancelled';
         return {
           ...r,
           amount_to_pay: cancelled ? 0 : Math.max(0, Math.round((total - paid) * 100) / 100),
-          utilities,
           sales_owner_label: r.is_owner_reservation
             ? 'Owner'
             : r.sales_person_name || r.sales_label || null,
@@ -1963,19 +1930,14 @@ router.post(
     }
     const nights = Math.max(1, Math.round((checkOut - checkIn) / 86400000));
     const pricePerNight = parseFloat(b.price_per_night) || (nights > 0 ? (parseFloat(b.total_amount) || 0) / nights : 0);
-    const utilitiesOverride = b.utilities_cost_override !== '' && b.utilities_cost_override != null
-      ? parseFloat(b.utilities_cost_override)
-      : null;
-    let utilitiesAmount = parseFloat(b.utilities_amount) || 0;
-    let housekeepingFees = 0;
     let wpPostId = null;
     let unitRow = null;
     if (b.unit_id) {
       const { rows: units } = await query(
-        `SELECT utilities_cost, property_type, wp_post_id, guests, has_nanny_room,
+        `SELECT property_type, wp_post_id, guests, has_nanny_room,
                 min_nights, project, compound, area, beds,
                 access_fee_per_adult_egp, access_fee_per_teen_egp, access_card_count_included,
-                cleaning_fee_egp, security_deposit_egp, listing_type
+                security_deposit_egp, listing_type
          FROM units WHERE id = $1`,
         [b.unit_id]
       );
@@ -1997,20 +1959,8 @@ router.post(
           min_nights: unitMinNights,
         });
       }
-      const { housekeepingFeeForUnit } = require('../../lib/housekeeping');
-      housekeepingFees = b.housekeeping_fees != null && b.housekeeping_fees !== ''
-        ? parseFloat(b.housekeeping_fees) || housekeepingFeeForUnit(unitRow)
-        : housekeepingFeeForUnit(unitRow);
       wpPostId = unitRow?.wp_post_id || null;
       // PMS / reservation-team creates are not bound by guest project minimum stay.
-      if (!utilitiesAmount) {
-        const costPerNight = utilitiesOverride != null && !Number.isNaN(utilitiesOverride)
-          ? utilitiesOverride
-          : parseFloat(unitRow?.utilities_cost) || 0;
-        if (costPerNight > 0 && !truthyFlag(b.is_owner_reservation)) {
-          utilitiesAmount = costPerNight * nights;
-        }
-      }
     }
 
     const isOwnerResEarly = truthyFlag(b.is_owner_reservation);
@@ -2115,16 +2065,15 @@ router.post(
          unit_id, guest_name, guest_email, guest_phone, guest_nationality,
          check_in, check_out, nights, total_amount, amount_paid, payment_status,
          booking_source, sales_person_id, is_owner_reservation, status, notes, created_by,
-         booking_id, price_per_night, housekeeping_fees, insurance, down_payment,
-         utilities_amount, utilities_cost_override,
+         booking_id, price_per_night, insurance, down_payment,
          broker_name, broker_amount_per_night, broker_total,
          owner_collected_type, owner_collected_amount,
          payment_method, transfer_proof_path, transfer_proof_name,
          hold_expires_at, adults, children, nanny_count, sales_label,
          beach_access_fees
        ) VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,0),$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
-         $25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,0),$15,$16,$17,$18,$19,$20,$21,
+         $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35
        )
        RETURNING *`,
       [
@@ -2147,11 +2096,8 @@ router.post(
         req.user.id,
         b.booking_id || null,
         pricePerNight,
-        housekeepingFees,
         parseFloat(b.insurance) || 0,
         downPayment,
-        utilitiesAmount,
-        utilitiesOverride,
         b.broker_name || null,
         brokerPerNight,
         brokerTotal,
@@ -2216,7 +2162,7 @@ router.post(
     ) {
       let amountToCollect = totalAmount - amountPaid;
       if (ownerCollectedType === 'full') {
-        amountToCollect = housekeepingFees + (parseFloat(b.insurance) || 0) - amountPaid;
+        amountToCollect = (parseFloat(b.insurance) || 0) - amountPaid;
       } else if (ownerCollectedType === 'partial') {
         amountToCollect = totalAmount - ownerCollectedAmount - amountPaid;
       }
@@ -2338,29 +2284,26 @@ router.patch(
          booking_source = COALESCE($14, booking_source),
          sales_person_id = COALESCE($15, sales_person_id),
          is_owner_reservation = COALESCE($16, is_owner_reservation),
-         housekeeping_fees = COALESCE($17, housekeeping_fees),
-         insurance = COALESCE($18, insurance),
-         down_payment = COALESCE($19, down_payment),
-         utilities_amount = COALESCE($20, utilities_amount),
-         utilities_cost_override = COALESCE($21, utilities_cost_override),
-         broker_name = COALESCE($22, broker_name),
-         broker_amount_per_night = COALESCE($23, broker_amount_per_night),
-         broker_total = COALESCE($24, broker_total),
-         owner_collected_type = COALESCE($25, owner_collected_type),
-         owner_collected_amount = COALESCE($26, owner_collected_amount),
-         payment_method = COALESCE($27, payment_method),
-         unit_id = COALESCE($28, unit_id),
+         insurance = COALESCE($17, insurance),
+         down_payment = COALESCE($18, down_payment),
+         broker_name = COALESCE($19, broker_name),
+         broker_amount_per_night = COALESCE($20, broker_amount_per_night),
+         broker_total = COALESCE($21, broker_total),
+         owner_collected_type = COALESCE($22, owner_collected_type),
+         owner_collected_amount = COALESCE($23, owner_collected_amount),
+         payment_method = COALESCE($24, payment_method),
+         unit_id = COALESCE($25, unit_id),
          hold_expires_at = CASE
-           WHEN $29::int = 0 THEN NULL
-           WHEN $29::int = 1 THEN COALESCE(hold_expires_at, now() + interval '24 hours')
+           WHEN $26::int = 0 THEN NULL
+           WHEN $26::int = 1 THEN COALESCE(hold_expires_at, now() + interval '24 hours')
            ELSE hold_expires_at
          END,
-         adults = COALESCE($30, adults),
-         children = COALESCE($31, children),
-         nanny_count = COALESCE($32, nanny_count),
-         beach_access_fees = COALESCE($33, beach_access_fees),
+         adults = COALESCE($27, adults),
+         children = COALESCE($28, children),
+         nanny_count = COALESCE($29, nanny_count),
+         beach_access_fees = COALESCE($30, beach_access_fees),
          updated_at = now()
-       WHERE id = $34 RETURNING *`,
+       WHERE id = $31 RETURNING *`,
       [
         b.status ?? null,
         b.payment_status ?? null,
@@ -2380,15 +2323,8 @@ router.patch(
           : null,
         b.sales_person_id || null,
         b.is_owner_reservation !== undefined ? (truthyFlag(b.is_owner_reservation) ? 1 : 0) : null,
-        b.housekeeping_fees != null && b.housekeeping_fees !== '' ? parseFloat(b.housekeeping_fees) : null,
         b.insurance != null && b.insurance !== '' ? parseFloat(b.insurance) : null,
         b.down_payment != null && b.down_payment !== '' ? parseFloat(b.down_payment) : null,
-        b.utilities_amount != null && b.utilities_amount !== '' ? parseFloat(b.utilities_amount) : null,
-        b.utilities_cost_override !== undefined
-          ? (b.utilities_cost_override === '' || b.utilities_cost_override == null
-              ? null
-              : parseFloat(b.utilities_cost_override))
-          : null,
         b.broker_name ?? null,
         b.broker_amount_per_night !== undefined ? brokerPerNight : null,
         b.broker_amount_per_night !== undefined || b.broker_total !== undefined ? brokerTotal : null,
@@ -2685,14 +2621,6 @@ router.post(
     
     await query(`DELETE FROM commissions WHERE reservation_id = $1`, [req.params.id]);
     await query(`DELETE FROM payments WHERE reservation_id = $1`, [req.params.id]);
-    try {
-      await query(
-        `UPDATE housekeeping_tasks
-         SET status = 'cancelled', updated_at = now()
-         WHERE reservation_id = $1 AND status IS DISTINCT FROM 'ready'`,
-        [req.params.id]
-      );
-    } catch (_) {}
 
     try {
       const { syncBlocksForReservation } = require('../../lib/reservationBlocks');
@@ -2954,7 +2882,6 @@ router.get('/reservations/:id', async (req, res, next) => {
               u.slug AS unit_slug,
               u.unit_number,
               u.compound AS project,
-              u.utilities_cost AS unit_utilities_cost,
               u.commission_mode,
               u.company_commission_pct,
               u.company_commission_owner_pct,
@@ -3196,8 +3123,6 @@ router.put('/payments/:id/approve', requireRoles('admin'), approvePaymentHandler
 const EXPENSE_CATEGORIES = new Set([
   'marketing',
   'salary',
-  'housekeeping_cost',
-  'utilities_cost',
   'other',
 ]);
 
@@ -3211,22 +3136,22 @@ router.get('/expenses', async (req, res, next) => {
     const from = clampFromDate(req.query.from_date);
     const to = req.query.to_date || null;
     const params = [from];
-    let where = `COALESCE(expense_date, created_at::date) >= $1::date`;
+    let where = `COALESCE(e.expense_date, e.created_at::date) >= $1::date`;
     if (to) {
       params.push(to);
-      where += ` AND COALESCE(expense_date, created_at::date) <= $${params.length}::date`;
+      where += ` AND COALESCE(e.expense_date, e.created_at::date) <= $${params.length}::date`;
     }
     if (req.query.unit_id) {
       params.push(req.query.unit_id);
-      where += ` AND unit_id = $${params.length}`;
+      where += ` AND e.unit_id = $${params.length}`;
     }
     if (req.query.paid_by) {
       params.push(req.query.paid_by);
-      where += ` AND paid_by = $${params.length}`;
+      where += ` AND e.paid_by = $${params.length}`;
     }
     if (req.query.category) {
       params.push(normalizeExpenseCategory(req.query.category));
-      where += ` AND COALESCE(category, 'other') = $${params.length}`;
+      where += ` AND COALESCE(e.category, 'other') = $${params.length}`;
     }
     const { rows } = await query(
       `SELECT e.*,
@@ -3480,36 +3405,19 @@ router.get('/dashboard/stats', async (req, res, next) => {
                   u.unit_number,
                   COALESCE(u.project, u.compound, 'Unassigned') AS project,
                   u.ops_status,
-                  CASE
-                    WHEN u.ops_status = 'maintenance' THEN 'maintenance'
-                    WHEN NOT EXISTS (
-                      SELECT 1 FROM housekeeping_tasks t
-                      WHERE t.unit_id = u.id
-                        AND t.reservation_id = r.id
-                        AND t.status = 'ready'
-                    ) THEN 'not_ready'
-                    ELSE 'ok'
-                  END AS risk_reason
+                  'maintenance' AS risk_reason
            FROM reservations r
            JOIN units u ON u.id = r.unit_id
            WHERE r.check_in = $1::date
              AND r.status IN ('confirmed', 'pending', 'checked_in')
              AND ($2::int IS NULL OR r.sales_person_id = $2 OR r.created_by = $2)
-             AND (
-               u.ops_status = 'maintenance'
-               OR NOT EXISTS (
-                 SELECT 1 FROM housekeeping_tasks t
-                 WHERE t.unit_id = u.id
-                   AND (t.reservation_id = r.id OR t.due_at::date = r.check_in)
-                   AND t.status = 'ready'
-               )
-             )
+             AND u.ops_status = 'maintenance'
            ORDER BY COALESCE(u.project, u.compound), u.title`,
           [today, agentId]
         ).catch(() => ({ rows: [] })),
         query(
           `SELECT r.*, u.company_commission_pct, u.company_commission_owner_pct,
-                  u.commission_mode, u.commission_tenant_pct, u.utilities_cost
+                  u.commission_mode, u.commission_tenant_pct
            FROM reservations r
            JOIN units u ON u.id = r.unit_id
            WHERE r.status <> 'cancelled' AND r.check_in >= $1::date
@@ -3531,10 +3439,7 @@ router.get('/dashboard/stats', async (req, res, next) => {
 
     let payoutsDue = 0;
     for (const r of ownerFinRows) {
-      const utilitiesAmount =
-        parseFloat(r.utilities_amount) ||
-        (Number(r.nights) || 0) * (parseFloat(r.utilities_cost) || 0);
-      const fin = calcReservationFinancials(r, { ...r, utilities_amount: utilitiesAmount });
+      const fin = calcReservationFinancials(r, r);
       payoutsDue += fin.ownerNet;
     }
 

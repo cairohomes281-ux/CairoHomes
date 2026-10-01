@@ -47,8 +47,8 @@ const PERMS = {
   resale_manager: ['tasks'],
   finance: ['financial_system', 'units', 'reservations', 'schedule', 'tasks'],
   finance_manager: ['financial_system', 'finance_audit', 'units', 'reservations', 'schedule', 'tasks'],
-  operations: ['operations', 'housekeeping', 'reservations', 'schedule', 'tasks'],
-  operations_supervisor: ['operations', 'housekeeping', 'reservations', 'schedule', 'tasks'],
+  operations: ['operations', 'reservations', 'schedule', 'tasks'],
+  operations_supervisor: ['operations', 'reservations', 'schedule', 'tasks'],
   owners_relations: ['units', 'reservations', 'owner_statement', 'owner_blocks', 'tasks'],
 };
 

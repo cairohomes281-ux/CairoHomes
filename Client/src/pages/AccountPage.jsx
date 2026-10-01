@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
@@ -8,30 +8,6 @@ import api from '../api/http';
 import ListingCard from '../components/ListingCard';
 import { getListingWpId, useWishlist } from '../hooks/useWishlist';
 import BrandLoader from '../components/ui/BrandLoader';
-
-const HOUSEKEEPING_TIMES = (() => {
-  const out = [];
-  for (let h = 3; h <= 23; h++) {
-    const hour12 = h % 12 === 0 ? 12 : h % 12;
-    const suffix = h < 12 ? 'AM' : 'PM';
-    out.push(`${hour12}:00 ${suffix}`);
-  }
-  return out;
-})();
-
-function datesInStay(checkin, checkout) {
-  const out = [];
-  if (!checkin || !checkout) return out;
-  const start = new Date(`${String(checkin).slice(0, 10)}T00:00:00`);
-  const end = new Date(`${String(checkout).slice(0, 10)}T00:00:00`);
-  for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    out.push(`${y}-${m}-${day}`);
-  }
-  return out;
-}
 
 function money(n) {
   return Number(n || 0).toLocaleString('en-EG');
@@ -43,11 +19,6 @@ export default function AccountPage() {
   const [trips, setTrips] = useState([]);
   const [points, setPoints] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [hkBookingId, setHkBookingId] = useState(null);
-  const [hkDate, setHkDate] = useState('');
-  const [hkTime, setHkTime] = useState('10:00 AM');
-  const [hkBusy, setHkBusy] = useState(false);
-  const [hkMsg, setHkMsg] = useState(null);
 
   async function refresh() {
     if (!user) return;
@@ -70,49 +41,6 @@ export default function AccountPage() {
     refresh();
   }, [user]);
 
-  const activeStay = useMemo(
-    () => trips.find((t2) => t2.is_current_stay && t2.status === 'confirmed'),
-    [trips]
-  );
-
-  const stayDates = useMemo(
-    () => datesInStay(activeStay?.checkin, activeStay?.checkout),
-    [activeStay]
-  );
-
-  useEffect(() => {
-    if (activeStay) {
-      setHkBookingId(activeStay.id);
-      const today = new Date();
-      const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      setHkDate(stayDates.includes(todayIso) ? todayIso : stayDates[0] || '');
-    } else {
-      setHkBookingId(null);
-    }
-  }, [activeStay, stayDates]);
-
-  async function requestHousekeeping(e) {
-    e.preventDefault();
-    if (!hkBookingId || !hkDate || !hkTime || hkBusy) return;
-    setHkBusy(true);
-    setHkMsg(null);
-    try {
-      await api.post(`/bookings/${hkBookingId}/housekeeping-request`, {
-        date: hkDate,
-        time: hkTime,
-      });
-      setHkMsg({ type: 'success', text: t('account.hkSuccess') });
-      await refresh();
-    } catch (err) {
-      setHkMsg({
-        type: 'error',
-        text: err.response?.data?.error || err.message || t('account.hkFail'),
-      });
-    } finally {
-      setHkBusy(false);
-    }
-  }
-
   if (!user) {
     return (
       <div>
@@ -132,7 +60,6 @@ export default function AccountPage() {
   }
 
   const displayName = user.full_name || user.email || t('common.guest');
-  const unitSuffix = activeStay?.unit_number ? t('account.unitSuffix', { number: activeStay.unit_number }) : '';
 
   return (
     <div>
@@ -161,78 +88,6 @@ export default function AccountPage() {
             {t('account.pointsBody')}
           </p>
         </section>
-
-        {activeStay && (
-          <section className="mt-8 rounded-2xl border border-ch-line bg-white p-6">
-            <h2 className="font-display text-2xl text-ch-pine">{t('account.hkTitle')}</h2>
-            <p className="mt-2 text-sm text-ch-muted">
-              {t('account.hkBody', { unit: unitSuffix })}
-            </p>
-            {activeStay.has_pending_housekeeping ? (
-              <p className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                {t('account.hkPending')}
-              </p>
-            ) : (
-              <form onSubmit={requestHousekeeping} className="mt-5 grid gap-4 sm:grid-cols-2">
-                <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-ch-muted">
-                  {t('account.date')}
-                  <select
-                    value={hkDate}
-                    onChange={(e) => setHkDate(e.target.value)}
-                    className="rounded-xl border border-ch-line px-4 py-3 text-sm text-ch-pine"
-                    required
-                  >
-                    {stayDates.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-ch-muted">
-                  {t('account.time')}
-                  <select
-                    value={hkTime}
-                    onChange={(e) => setHkTime(e.target.value)}
-                    className="rounded-xl border border-ch-line px-4 py-3 text-sm text-ch-pine"
-                    required
-                  >
-                    {HOUSEKEEPING_TIMES.map((time) => (
-                      <option key={time} value={time}>
-                        {time}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="sm:col-span-2">
-                  <button
-                    type="submit"
-                    disabled={hkBusy || !hkDate || !hkTime}
-                    className="rounded-full bg-ch-pine px-6 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-white disabled:opacity-50"
-                  >
-                    {hkBusy ? t('account.sending') : t('account.hkSubmit')}
-                  </button>
-                </div>
-              </form>
-            )}
-            {hkMsg && (
-              <p
-                className={`mt-4 rounded-xl px-4 py-3 text-sm ${
-                  hkMsg.type === 'success'
-                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-800'
-                    : 'border border-rose-200 bg-rose-50 text-rose-800'
-                }`}
-              >
-                {hkMsg.text}
-              </p>
-            )}
-            {Number(activeStay.guest_housekeeping_count) > 0 && (
-              <p className="mt-3 text-xs text-ch-muted">
-                {t('account.hkExtra', { count: activeStay.guest_housekeeping_count })}
-              </p>
-            )}
-          </section>
-        )}
 
         <section className="mt-10">
           <h2 className="font-display text-2xl text-ch-pine">{t('account.history')}</h2>

@@ -21,7 +21,6 @@ import SortTh from '../components/ui/SortTh';
 import BookingCalendar from '../components/ui/BookingCalendar';
 import { currency, formatDate, formatDateTime, nightsText, BOOKING_SOURCES, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, MANUAL_PAYMENT_METHODS, unitDisplay, unitSelectLabel } from '../utils/formatters';
 import { calcReservationFinancials, commissionModeLabel, appliedPctLabel } from '../utils/commission';
-import { housekeepingFeeForUnit } from '../../utils/housekeeping';
 import { isoDateOnly } from '../../utils/stayNights';
 import { canonicalSalesName, namesAreAliases, reservationSalesDisplay } from '../utils/salesNameMatch';
 import AdminReservationDrawer from '../components/AdminReservationDrawer';
@@ -76,11 +75,10 @@ export const EMPTY_FORM = {
   unit_id: '', guest_name: '', guest_email: '', guest_phone: '', guest_nationality: '',
   adults: '2', children: '0', nanny_count: '0',
   check_in: '', check_out: '', price_per_night: '', total_amount: '',
-  down_payment: '', housekeeping_fees: '', insurance: '',
+  down_payment: '', insurance: '',
   booking_source: '', sales_person_id: '', is_owner_reservation: false, notes: '',
   owner_collected_type: '',   
   owner_collected_amount: '',
-  utilities_cost_override: '',
   beach_access_fees: '',
   broker_name: '',
   broker_amount_per_night: '',
@@ -103,11 +101,9 @@ function reservationFullBill(r) {
       ? Math.round(pricePerNight * nights * 100) / 100
       : 0;
   const storedTotal = parseFloat(r?.total_amount) || 0;
-  const hkFees = parseFloat(r?.housekeeping_fees) || 0;
   const beachFees = parseFloat(r?.beach_access_fees) || 0;
   const ins = parseFloat(r?.insurance) || 0;
-  const utilities = parseFloat(r?.utilities_amount) || 0;
-  const lineSum = Math.round((accommodation + hkFees + beachFees + ins + utilities) * 100) / 100;
+  const lineSum = Math.round((accommodation + beachFees + ins) * 100) / 100;
   if (accommodation > 0 && Math.abs(storedTotal - accommodation) <= 0.5) return lineSum;
   return Math.max(storedTotal, lineSum);
 }
@@ -123,12 +119,6 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
   }, [form.unit_id]);
 
   
-  useEffect(() => {
-    if (!selectedUnit) return;
-    const fee = housekeepingFeeForUnit(selectedUnit);
-    setForm((f) => (Number(f.housekeeping_fees) === fee ? f : { ...f, housekeeping_fees: String(fee) }));
-  }, [form.unit_id, selectedUnit?.property_type, selectedUnit?.type]);
-
   const nights = calcNights(form.check_in, form.check_out);
 
   
@@ -141,9 +131,6 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
 
   const total = parseFloat(form.total_amount) || 0;
   const downPmt = parseFloat(form.down_payment) || 0;
-  const hkFees = selectedUnit
-    ? housekeepingFeeForUnit(selectedUnit)
-    : (parseFloat(form.housekeeping_fees) || 0);
   const ins     = parseFloat(form.insurance) || 0;
   const ownerCollectedAmt = parseFloat(form.owner_collected_amount) || 0;
 
@@ -151,7 +138,7 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
   let amountToPay;
   if (form.owner_collected_type === 'full') {
     
-    amountToPay = hkFees + ins - downPmt;
+    amountToPay = ins - downPmt;
   } else if (form.owner_collected_type === 'partial') {
     amountToPay = total - ownerCollectedAmt - downPmt;
   } else {
@@ -265,15 +252,6 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
               onChange={e => setForm(f => ({ ...f, down_payment: e.target.value }))} placeholder="0.00" />
           </div>
           <div>
-            <label className="label">Housekeeping Fees (EGP)</label>
-            <div className="input bg-gray-50 text-gray-700 font-medium">
-              {selectedUnit
-                ? `EGP ${hkFees.toLocaleString('en-EG')} (${String(selectedUnit.type || selectedUnit.property_type || '').toLowerCase() === 'villa' ? 'Villa' : 'Standard'})`
-                : 'Select a unit'}
-            </div>
-            <p className="text-xs text-gray-400 mt-1">Fixed: 1,500 EGP · Villas 2,500 EGP</p>
-          </div>
-          <div>
             <label className="label">Insurance (EGP)</label>
             <input type="number" min="0" step="0.01" className="input" value={form.insurance}
               onChange={e => setForm(f => ({ ...f, insurance: e.target.value }))} placeholder="0.00" />
@@ -358,7 +336,7 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
                   ? 'bg-green-100 text-green-800'
                   : 'bg-amber-100 text-amber-800'}`}>
                 {form.owner_collected_type === 'full'
-                  ? `✓ Owner collected full reservation amount. We only collect housekeeping${ins > 0 ? ' + insurance' : ''} = EGP ${(hkFees + ins).toLocaleString('en-EG', { minimumFractionDigits: 2 })}. Commission still charged on full total.`
+                  ? `✓ Owner collected full reservation amount.${ins > 0 ? ` We only collect insurance = EGP ${ins.toLocaleString('en-EG', { minimumFractionDigits: 2 })}.` : ''} Commission still charged on full total.`
                   : ownerCollectedAmt > 0
                     ? `Owner collected EGP ${ownerCollectedAmt.toLocaleString('en-EG', { minimumFractionDigits: 2 })} — deducted from what we collect. Commission still charged on full total.`
                     : 'Enter amount the owner collected from the tenant.'}
@@ -411,35 +389,6 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
           )}
         </div>
 
-        {selectedUnit && !form.is_owner_reservation && (
-          <div className="border border-blue-200 bg-blue-50 rounded-xl p-3 space-y-2">
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-semibold text-blue-800 whitespace-nowrap">⚡ Utilities/night (EGP)</span>
-              <input
-                type="number" min="0" step="0.01"
-                className="input w-36 text-sm"
-                value={form.utilities_cost_override}
-                onChange={e => setForm(f => ({ ...f, utilities_cost_override: e.target.value }))}
-                placeholder={selectedUnit?.utilities_cost ? `${selectedUnit.utilities_cost} (default)` : '0.00'}
-              />
-              {form.utilities_cost_override && (
-                <button
-                  type="button"
-                  onClick={() => setForm(f => ({ ...f, utilities_cost_override: '' }))}
-                  className="text-xs text-blue-500 hover:text-blue-700 underline"
-                >reset to default</button>
-              )}
-            </div>
-            <div className="text-xs text-blue-700">
-              {form.utilities_cost_override
-                ? <>Using override: <strong>EGP {form.utilities_cost_override}/night</strong>{nights > 0 && ` → total EGP ${(parseFloat(form.utilities_cost_override) * nights).toFixed(2)}`}</>
-                : selectedUnit?.utilities_cost > 0
-                  ? <>Unit default: <strong>EGP {selectedUnit.utilities_cost}/night</strong>{nights > 0 && ` → total EGP ${(selectedUnit.utilities_cost * nights).toFixed(2)}`}</>
-                  : 'Leave blank to use unit default (currently EGP 0)'
-              }
-            </div>
-          </div>
-        )}
       </div>
 
       
@@ -448,7 +397,7 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
           <input type="checkbox" id="is_owner_res" checked={!!form.is_owner_reservation}
             onChange={e => setForm(f => ({ ...f, is_owner_reservation: e.target.checked }))}
             className="w-4 h-4 rounded border-gray-300 text-primary-600" />
-          <label htmlFor="is_owner_res" className="text-sm font-medium text-amber-800">Owner Reservation — no utilities deduction</label>
+          <label htmlFor="is_owner_res" className="text-sm font-medium text-amber-800">Owner Reservation</label>
         </div>
         <div>
           <label className="label">Sales Person {!form.is_owner_reservation && <span className="text-red-500">*</span>}</label>
@@ -572,11 +521,9 @@ function ReservationDetail({
       : 0;
   const downPmt   = parseFloat(reservation.down_payment) || 0;
   const storedTotal = parseFloat(reservation.total_amount) || 0;
-  const hkFees    = parseFloat(reservation.housekeeping_fees) || 0;
   const beachFees = parseFloat(reservation.beach_access_fees) || 0;
   const ins       = parseFloat(reservation.insurance) || 0;
-  const utilities = parseFloat(reservation.utilities_amount) || 0;
-  const lineSum = Math.round((accommodation + hkFees + beachFees + ins + utilities) * 100) / 100;
+  const lineSum = Math.round((accommodation + beachFees + ins) * 100) / 100;
   // Full stay bill: line items when total_amount is accommodation-only; else prefer stored full total.
   const total =
     accommodation > 0 && Math.abs(storedTotal - accommodation) <= 0.5
@@ -588,7 +535,7 @@ function ReservationDetail({
     : [];
   let amountToPay;
   if (reservation.owner_collected_type === 'full') {
-    amountToPay = hkFees + ins - downPmt;
+    amountToPay = ins - downPmt;
   } else if (reservation.owner_collected_type === 'partial') {
     amountToPay = total - ownerAmt - downPmt;
   } else {
@@ -635,7 +582,6 @@ function ReservationDetail({
                   : '—'
               }
             />
-            <InfoRow label="Housekeeping" value={currency(reservation.housekeeping_fees)} />
             <InfoRow label="Insurance" value={currency(reservation.insurance)} />
           </div>
         </div>
@@ -650,7 +596,6 @@ function ReservationDetail({
       company_commission_pct:      reservation.company_commission_pct,
       company_commission_owner_pct: reservation.company_commission_owner_pct,
       commission_tenant_pct:       reservation.commission_tenant_pct,
-      utilities_cost:              reservation.unit_utilities_cost,
     },
     reservation
   );
@@ -720,10 +665,8 @@ function ReservationDetail({
             )}
             bold
           />
-          <InfoRow label="Housekeeping" value={currency(reservation.housekeeping_fees)} />
           <InfoRow label="Beach Pass" value={currency(reservation.beach_access_fees)} />
           <InfoRow label="Insurance" value={currency(reservation.insurance)} />
-          <InfoRow label="Utilities" value={currency(reservation.utilities_amount)} />
           <InfoRow label="Payment Status" value={reservation.payment_status} />
           <InfoRow label="Status" value={reservation.status} />
         </div>
@@ -747,20 +690,11 @@ function ReservationDetail({
           <span className="text-gray-500">We Need to Collect</span>
           <span className={`font-semibold ${amountToPay > 0 ? 'text-red-600' : 'text-green-600'}`}>{currency(amountToPay)}</span>
         </div>
-        {reservation.housekeeping_fees > 0 && (
-          <div className="flex justify-between"><span className="text-gray-500">Housekeeping</span><span>{currency(reservation.housekeeping_fees)}</span></div>
-        )}
         {Number(reservation.beach_access_fees) > 0 && (
           <div className="flex justify-between"><span className="text-gray-500">Beach Pass</span><span>{currency(reservation.beach_access_fees)}</span></div>
         )}
         {reservation.insurance > 0 && (
           <div className="flex justify-between"><span className="text-gray-500">Insurance</span><span>{currency(reservation.insurance)}</span></div>
-        )}
-        {fin.utilitiesDeduction > 0 && (
-          <div className="flex justify-between">
-            <span className="text-gray-500">Utilities</span>
-            <span className="text-orange-600">{currency(fin.utilitiesDeduction)} (deducted from revenue)</span>
-          </div>
         )}
         {showCommission && fin.tenantDeduction > 0 && (
           <div className="flex justify-between">
@@ -946,14 +880,13 @@ function ReservationDetail({
 
 function calcNetPricePerNight(r) {
   const gross      = parseFloat(r.total_amount)    || 0;
-  const utilities  = parseFloat(r.utilities_amount) || 0;
   const broker     = parseFloat(r.broker_total)     || 0;
   const nights     = Math.max(parseInt(r.nights) || 1, 1);
   const mode       = String(r.commission_mode || 'A').toUpperCase();
   const tenantPct  = parseFloat(r.commission_tenant_pct) || 0;
   const isOwner    = Boolean(parseInt(r.is_owner_reservation) || r.is_owner_reservation === true);
 
-  const netBase = gross - utilities - broker;
+  const netBase = gross - broker;
   const tenantDeduction = (mode === 'C' && tenantPct > 0 && !isOwner)
     ? Math.round((netBase * tenantPct / 100) * 100) / 100
     : 0;
@@ -1345,7 +1278,6 @@ export default function Reservations() {
       price_per_night: r.price_per_night || '',
       total_amount: r.total_amount,
       down_payment: r.down_payment || '',
-      housekeeping_fees: r.housekeeping_fees || '',
       insurance: r.insurance || '',
       booking_source: r.booking_source || '',
       sales_person_id: r.sales_person_id || '',
@@ -1353,7 +1285,6 @@ export default function Reservations() {
       notes: r.notes || '', status: r.status,
       owner_collected_type:   r.owner_collected_type   || '',
       owner_collected_amount: r.owner_collected_amount || '',
-      utilities_cost_override: r.utilities_cost_override != null ? String(r.utilities_cost_override) : '',
       beach_access_fees: r.beach_access_fees != null ? String(r.beach_access_fees) : '',
       broker_name: r.broker_name || '',
       broker_amount_per_night: r.broker_amount_per_night != null ? String(r.broker_amount_per_night) : '',
@@ -1366,7 +1297,6 @@ export default function Reservations() {
       return toast.error('Mobile number is required');
     if (!form.is_owner_reservation && !form.sales_person_id)
       return toast.error('Please select a Sales Person or mark as Owner Reservation');
-    const selectedUnit = units.find((u) => String(u.id) === String(form.unit_id));
     const adults = Math.max(0, parseInt(form.adults, 10) || 0);
     const children = Math.max(0, parseInt(form.children, 10) || 0);
     const nannyCount = Math.max(0, parseInt(form.nanny_count, 10) || 0);
@@ -1377,12 +1307,6 @@ export default function Reservations() {
       adults,
       children,
       nanny_count: nannyCount,
-      housekeeping_fees:
-        form.housekeeping_fees !== '' && form.housekeeping_fees != null
-          ? Number(form.housekeeping_fees) || 0
-          : selectedUnit
-            ? housekeepingFeeForUnit(selectedUnit)
-            : 0,
       beach_access_fees: form.is_owner_reservation
         ? 0
         : form.beach_access_fees !== '' && form.beach_access_fees != null
@@ -1539,10 +1463,8 @@ export default function Reservations() {
         Total: total,
         'Down Payment': down,
         'Amt to Pay': amtToPay,
-        Housekeeping: parseFloat(r.housekeeping_fees) || 0,
         'Beach Pass': parseFloat(r.beach_access_fees) || 0,
         Insurance: parseFloat(r.insurance) || 0,
-        Utilities: parseFloat(r.utilities_amount ?? r.utilities) || 0,
         'Payment Status': payLabel,
         Status: r.status || '',
         'Sales / Owner': reservationSalesDisplay(r, users, ''),
@@ -1722,15 +1644,12 @@ export default function Reservations() {
                   {isOwnersRelations ? (
                     <>
                       <th className="whitespace-nowrap">Owner collected</th>
-                      <th className="whitespace-nowrap text-right">Housekeeping</th>
                       <th className="whitespace-nowrap text-right">Insurance</th>
                     </>
                   ) : (
                     <>
-                      <th className="whitespace-nowrap text-right">Housekeeping</th>
                       <th className="whitespace-nowrap text-right">Beach Pass</th>
                       <th className="whitespace-nowrap text-right">Insurance</th>
-                      <th className="whitespace-nowrap text-right">Utilities</th>
                       <SortTh col="payment_status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="whitespace-nowrap">Payment Status</SortTh>
                       <SortTh col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="whitespace-nowrap">Status</SortTh>
                       <th className="whitespace-nowrap">Sales / Owner</th>
@@ -1788,7 +1707,6 @@ export default function Reservations() {
                                 }`
                               : '—'}
                           </td>
-                          <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(r.housekeeping_fees)}</td>
                           <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(r.insurance)}</td>
                         </>
                       ) : (
@@ -1798,10 +1716,8 @@ export default function Reservations() {
                       <td className={`text-right font-medium whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : amtToPay > 0 ? 'text-red-600' : 'text-green-600'}`}>
                         {currency(isCancelled ? 0 : amtToPay)}
                       </td>
-                      <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(r.housekeeping_fees)}</td>
                       <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(r.beach_access_fees)}</td>
                       <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(r.insurance)}</td>
-                      <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(r.utilities_amount ?? r.utilities)}</td>
                       <td className="whitespace-nowrap"><Badge status={isCancelled ? 'cancelled' : payLabel === 'unpaid' ? 'pending' : payLabel} />
                         <div className="text-[10px] text-gray-400 mt-0.5">{isCancelled ? 'cancelled' : payLabel}</div>
                       </td>

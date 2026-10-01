@@ -85,7 +85,6 @@ const AMENITY_SUGGESTIONS = [
   'Outdoor dining area',
   'BBQ grill',
   'Private pool access',
-  'Housekeeping available',
 ];
 
 const FLOOR_OPTIONS = [
@@ -123,7 +122,6 @@ const EMPTY_FORM = {
   price_per_night: '',
   price_monthly: '',
   min_nights: '',
-  utilities_cost: '',
   ops_status: 'available',
   listing_status: 'published',
   view: '',
@@ -439,10 +437,6 @@ function UnitForm({ form, setForm, listingType = 'rent' }) {
                 placeholder="e.g. 145"
               />
             </div>
-            <div>
-              <label className="label">Utilities Cost Per Night (EGP)</label>
-              <input type="number" min="0" step="0.01" className="input" value={form.utilities_cost} onChange={e => setForm(f => ({ ...f, utilities_cost: e.target.value }))} placeholder="Optional" />
-            </div>
             <p className="sm:col-span-2 text-xs text-gray-500">
               Guests can see available dates and send a WhatsApp inquiry, but cannot book this unit
               online. Reservations are made from the Schedule or Reservations page.
@@ -453,10 +447,6 @@ function UnitForm({ form, setForm, listingType = 'rent' }) {
             <div>
               <label className="label">Fallback nightly (EGP)</label>
               <input type="number" min="0" step="0.01" className="input" value={form.price_per_night} onChange={e => setForm(f => ({ ...f, price_per_night: e.target.value }))} placeholder="Display price per night" />
-            </div>
-            <div>
-              <label className="label">Utilities Cost Per Night (EGP)</label>
-              <input type="number" min="0" step="0.01" className="input" value={form.utilities_cost} onChange={e => setForm(f => ({ ...f, utilities_cost: e.target.value }))} placeholder="0.00" />
             </div>
             <p className="sm:col-span-2 text-xs text-gray-500">
               Beach access is set on the project (Destinations &amp; Projects), not per unit.
@@ -762,7 +752,6 @@ export default function Units({ listingType = 'rent' }) {
       price_per_night: u.price_per_night ?? u.price_fallback ?? '',
       price_monthly: u.price_monthly ?? '',
       min_nights: u.min_nights ?? '',
-      utilities_cost: u.utilities_cost ?? '',
       unit_area: u.unit_area ?? u.size_m2 ?? '',
       ops_status: u.ops_status || 'available',
       view: u.view || '',
@@ -836,7 +825,6 @@ export default function Units({ listingType = 'rent' }) {
             min_nights: form.min_nights,
           }
         : {}),
-      utilities_cost: form.utilities_cost === '' ? null : form.utilities_cost,
     });
   };
   const canWrite = isLongTerm ? canManageLongTermUnits : canManageUnits;

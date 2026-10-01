@@ -546,8 +546,8 @@ router.post('/maintenance-tickets', async (req, res, next) => {
     const { rows } = await query(
       `INSERT INTO maintenance_tickets (
          unit_id, title, description, severity, status, vendor_name, cost_amount,
-         housekeeping_task_id, created_by
-       ) VALUES ($1,$2,$3,COALESCE($4,'medium'),COALESCE($5,'open'),$6,COALESCE($7,0),$8,$9)
+         created_by
+       ) VALUES ($1,$2,$3,COALESCE($4,'medium'),COALESCE($5,'open'),$6,COALESCE($7,0),$8)
        RETURNING *`,
       [
         b.unit_id,
@@ -557,7 +557,6 @@ router.post('/maintenance-tickets', async (req, res, next) => {
         b.status || 'open',
         b.vendor_name || null,
         b.cost_amount ?? 0,
-        b.housekeeping_task_id || null,
         req.user.id,
       ]
     );

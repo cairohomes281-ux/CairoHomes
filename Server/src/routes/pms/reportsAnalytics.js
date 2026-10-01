@@ -334,9 +334,9 @@ router.get('/reports/by-unit', requireRoles('admin'), async (req, res, next) => 
     const { sql: dateSql, params } = reportFilters(req);
     const { rows } = await query(
       `SELECT
-         r.id, r.nights, r.total_amount, r.utilities_amount,
+         r.id, r.nights, r.total_amount,
          r.price_per_night, r.is_owner_reservation, r.booking_id, r.booking_source,
-         r.broker_total, r.broker_amount_per_night, r.housekeeping_fees,
+         r.broker_total, r.broker_amount_per_night,
          u.id AS unit_id,
          COALESCE(u.unit_number, u.title, 'Unit') AS unit_name,
          COALESCE(u.project, u.compound) AS project,
@@ -373,7 +373,6 @@ router.get('/reports/by-unit', requireRoles('admin'), async (req, res, next) => 
           total_gross: 0,
           total_owner_net: 0,
           total_company_commission: 0,
-          total_utilities: 0,
         };
       }
       const u = unitMap[r.unit_id];
@@ -383,7 +382,6 @@ router.get('/reports/by-unit', requireRoles('admin'), async (req, res, next) => 
       u.total_gross += parseFloat(r.total_amount) || 0;
       u.total_owner_net += fin.ownerNet;
       u.total_company_commission += fin.companyCommission;
-      u.total_utilities += fin.utilitiesDeduction;
     }
 
     const units = Object.values(unitMap)
@@ -393,7 +391,6 @@ router.get('/reports/by-unit', requireRoles('admin'), async (req, res, next) => 
         total_gross: round2(u.total_gross),
         total_owner_net: round2(u.total_owner_net),
         total_company_commission: round2(u.total_company_commission),
-        total_utilities: round2(u.total_utilities),
       }));
 
     res.json({ units });

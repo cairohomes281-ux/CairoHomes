@@ -121,9 +121,7 @@ router.get('/reports/owner-statement', requireRoles('owner', 'admin', 'finance',
       tenantCommissionPct: Number(unit.commission_tenant_pct) || 0,
       totalGross: statement.totalGross,
       totalTenantDeduction: statement.totalTenantDeduction,
-      totalUtilitiesDeduction: statement.totalUtilitiesDeduction,
       totalBrokerDeduction: 0,
-      totalHousekeeping: statement.totalHousekeeping,
       totalSubtotal: statement.totalSubtotal,
       totalCompanyCommission: statement.totalCompanyCommission,
       totalOwnerNet: statement.totalOwnerNet,
@@ -180,7 +178,7 @@ router.get('/owner/dashboard', requireRoles('owner', 'admin'), async (req, res, 
     const from = clampFromDate(req.query.from_date);
     const { rows: reservations } = await query(
       `SELECT r.*, u.company_commission_pct, u.company_commission_owner_pct,
-              u.commission_mode, u.commission_tenant_pct, u.utilities_cost
+              u.commission_mode, u.commission_tenant_pct
        FROM reservations r
        JOIN units u ON u.id = r.unit_id
        WHERE r.unit_id = ANY($1::uuid[])
@@ -276,8 +274,8 @@ router.get('/owner/reservations', requireRoles('owner', 'admin'), async (req, re
       `SELECT r.id, r.check_in, r.check_out, r.nights, r.total_amount, r.status, r.payment_status,
               r.booking_id, u.title AS unit_name, u.unit_number,
               u.company_commission_pct, u.company_commission_owner_pct,
-              u.commission_mode, u.commission_tenant_pct, u.utilities_cost,
-              r.housekeeping_fees, r.utilities_amount, r.owner_collected_type, r.owner_collected_amount,
+              u.commission_mode, u.commission_tenant_pct,
+              r.owner_collected_type, r.owner_collected_amount,
               r.broker_name, r.broker_amount_per_night, r.broker_total,
               r.price_per_night, r.payment_method, r.updated_at, r.created_at
        FROM reservations r
@@ -294,7 +292,7 @@ router.get('/owner/reservations', requireRoles('owner', 'admin'), async (req, re
               b.status, b.payment_status, b.created_at, b.cancellation_reason,
               u.title AS unit_name, u.unit_number,
               u.company_commission_pct, u.company_commission_owner_pct,
-              u.commission_mode, u.commission_tenant_pct, u.utilities_cost, u.property_type
+              u.commission_mode, u.commission_tenant_pct, u.property_type
        FROM bookings b
        JOIN units u ON u.id = b.unit_id
        WHERE b.unit_id = ANY($1::uuid[])
@@ -308,8 +306,6 @@ router.get('/owner/reservations', requireRoles('owner', 'admin'), async (req, re
       [unitIds]
     );
 
-    const { housekeepingFeeForUnit } = require('../../lib/housekeeping');
-
     const mappedReservations = reservations.map((r) => {
       const raw = String(r.status || '').toLowerCase();
       let ownerStatus = 'confirmed';
@@ -322,7 +318,6 @@ router.get('/owner/reservations', requireRoles('owner', 'admin'), async (req, re
         company_commission_owner_pct: r.company_commission_owner_pct,
         commission_mode: r.commission_mode,
         commission_tenant_pct: r.commission_tenant_pct,
-        utilities_cost: r.utilities_cost,
       };
       const fin = ownerPortalFinancials(unit, r, { status: ownerStatus });
       return {
@@ -359,19 +354,14 @@ router.get('/owner/reservations', requireRoles('owner', 'admin'), async (req, re
         b.status === 'cancelled' || String(b.status).toLowerCase() === 'rejected'
           ? 'rejected'
           : 'pending';
-      const hk = housekeepingFeeForUnit(b);
-      const util = nights * (parseFloat(b.utilities_cost) || 0);
       const unit = {
         company_commission_pct: b.company_commission_pct,
-        utilities_cost: b.utilities_cost,
       };
       const fin = ownerPortalFinancials(
         unit,
         {
           nights,
           total_amount: b.total_amount,
-          housekeeping_fees: hk,
-          utilities_amount: util,
         },
         { status: ownerStatus }
       );

@@ -13,8 +13,6 @@ const ROLE_PREFIX = {
   unit_acquisition_manager: 'Q',
   operations: 'P',
   operations_supervisor: 'V',
-  housekeeping: 'K',
-  housekeeping_supervisor: 'L',
   resale: 'S',
   resale_manager: 'J',
   finance: 'F',

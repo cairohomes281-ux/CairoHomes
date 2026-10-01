@@ -3,7 +3,6 @@ import { ArrowUpRight, Star } from 'lucide-react';
 import { getMinimumStayNights } from '../../utils/bookingRules';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useLocale } from '../../context/LocaleContext';
-import { housekeepingFeeForUnit } from '../../utils/housekeeping';
 import { resolveBeachAccessRates } from '../../utils/beachAccess';
 import { brand, whatsappHref, listingWhatsAppMessage } from '../../theme/brand';
 import { getDisplayPriceEgp } from '../../utils/displayPrice';
@@ -53,7 +52,6 @@ export default function ListingBookingCard({
   const pricePerNight =
     todayFromCalendar > 0 ? todayFromCalendar : getDisplayPriceEgp(unit);
 
-  const cleaning = housekeepingFeeForUnit(unit);
   const minNights = getMinimumStayNights(unit);
   const beach = resolveBeachAccessRates(unit, minNights);
   const rating = Number(unit?.average_rating || 0);
@@ -94,7 +92,6 @@ export default function ListingBookingCard({
   const inquiryHref = whatsappHref(listingWhatsAppMessage(listingUrl));
 
   const rows = [
-    cleaning > 0 && { label: t('listing.housekeepingLabel'), value: money(cleaning), hint: t('listing.oncePerStay') },
     minNights > 1 && { label: t('listing.minStayLabel'), value: t('listing.nightsCount', { count: minNights }) },
     { label: t('listing.checkInOutLabel'), value: t('listing.checkInOutValue') },
     beachSummary && { label: t('listing.clubAccessLabel'), value: beachSummary },
@@ -230,7 +227,6 @@ export default function ListingBookingCard({
                   <span className="font-display text-[12px] italic text-ch-muted"> {t('common.perNight')}</span>
                 )}
               </div>
-              <div className="truncate text-[11px] text-ch-muted">{t('listing.housekeepingShort', { amount: money(cleaning) })}</div>
             </div>
             <a
               href={inquiryHref}

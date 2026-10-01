@@ -169,7 +169,6 @@ export default function BookingDrawer({
   );
 
   const subtotal = Number(quote?.subtotal || 0);
-  const cleaning = Number(quote?.cleaning_fee_egp || 0);
   const access = Number(quote?.access_fee_egp || 0);
   const service = Number(quote?.service_fee_egp || 0);
   const gross = Number(quote?.total_egp || 0);
@@ -202,6 +201,8 @@ export default function BookingDrawer({
         amount: gross,
         email: formState.email,
         phone: formState.phone,
+        unitId: unit?.id,
+        slug: unit?.slug,
       });
       setPromo({
         code: result.code,
@@ -213,7 +214,7 @@ export default function BookingDrawer({
       setMessage(t('booking.promoAppliedMsg', { code: result.code }));
     } catch (err) {
       setPromo({ code: '', percentage: 0, discountAmount: 0, isValid: false, loading: false });
-      setMessage(err.message || t('booking.invalidPromo'));
+      setMessage(err.response?.data?.error || t('booking.invalidPromo'));
     }
   }
 
@@ -261,7 +262,6 @@ export default function BookingDrawer({
       nights,
       nightlyRate,
       subtotalAmount: subtotal,
-      cleaningFee: cleaning,
       accessFee: access,
       serviceFee: service,
       feeLines: quote?.lines || [],
@@ -485,12 +485,6 @@ export default function BookingDrawer({
                 <span>{t('booking.subtotalNights', { count: nights || '—' })}</span>
                 <span className="font-semibold text-ch-pine">{money(subtotal)}</span>
               </div>
-              {cleaning > 0 && (
-                <div className="flex items-center justify-between text-sm text-ch-muted">
-                  <span>{t('booking.cleaning')}</span>
-                  <span className="font-semibold text-ch-pine">{money(cleaning)}</span>
-                </div>
-              )}
               {access > 0 && (
                 <div className="flex items-center justify-between text-sm text-ch-muted">
                   <span>{t('booking.accessBeach')}</span>

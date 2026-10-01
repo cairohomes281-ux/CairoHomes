@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Sparkles } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import api from '../api/axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { useAuth } from '../context/AuthContext';
@@ -84,7 +84,6 @@ export function CheckinsHistorySection({ embedded = false }) {
                 <th className="py-3 px-4">Guest</th>
                 <th className="py-3 px-4">Unit</th>
                 <th className="py-3 px-4">Agent</th>
-                <th className="py-3 px-4">Housekeeping</th>
                 <th className="py-3 px-4">Money</th>
                 <th className="py-3 px-4">Handover</th>
               </tr>
@@ -105,15 +104,6 @@ export function CheckinsHistorySection({ embedded = false }) {
                     <div className="text-xs text-gray-500 truncate max-w-[10rem]">{r.project || ''}</div>
                   </td>
                   <td className="py-3 px-4 text-xs text-gray-700">{r.ops_assignee_name || '—'}</td>
-                  <td className="py-3 px-4">
-                    {r.hk_cleaned ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-700 text-xs font-semibold">
-                        <Sparkles className="w-3.5 h-3.5" /> Cleaned
-                      </span>
-                    ) : (
-                      <span className="text-xs text-amber-700">Not cleaned</span>
-                    )}
-                  </td>
                   <td className="py-3 px-4 text-xs">
                     {r.ops_money_collected ? (
                       <div className="text-emerald-700 font-semibold inline-flex items-center gap-1">

@@ -3,7 +3,7 @@
  * Line items come from a fresh quote (pre-promo); total_egp on the booking is post-promo.
  */
 export function resolveWebsiteBookingPayTotals(pay = {}, booking = {}) {
-  const lineSum = ['subtotal', 'housekeeping_fees', 'beach_access_fees', 'service_fees'].reduce(
+  const lineSum = ['subtotal', 'beach_access_fees', 'service_fees'].reduce(
     (sum, key) => sum + (Number(pay[key]) || 0),
     0
   );

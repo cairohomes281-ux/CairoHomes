@@ -17,7 +17,6 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 const IN_CATEGORIES = [
   'Beach Access In',
   'Rental Fees',
-  'Housekeeping',
   'Insurance',
   'Maintenance',
   'Others',
@@ -25,14 +24,13 @@ const IN_CATEGORIES = [
 
 const OUT_CATEGORIES = [
   'Beach Access Out',
-  'Housekeeping',
   'Insurance',
   'Maintenance',
   'Others',
 ];
 
-const IN_REQUIRES_DATES  = ['Beach Access In', 'Rental Fees', 'Housekeeping'];
-const OUT_REQUIRES_DATES = ['Beach Access Out', 'Housekeeping'];
+const IN_REQUIRES_DATES  = ['Beach Access In', 'Rental Fees'];
+const OUT_REQUIRES_DATES = ['Beach Access Out'];
 
 const EMPTY_FORM = {
   type: 'out',

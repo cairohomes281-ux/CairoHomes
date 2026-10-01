@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, KeyRound, Sparkles } from 'lucide-react';
+import { CheckCircle2, KeyRound } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
@@ -51,14 +51,12 @@ function PaymentDetails({ row }) {
         <div className="text-gray-400">{guestsTotal} guest{guestsTotal === 1 ? '' : 's'} total</div>
       )}
       <MoneyLine label="Accommodation" value={b.accommodation_amount} />
-      <MoneyLine label="Housekeeping" value={b.housekeeping_fees} />
       <MoneyLine label="Beach access" value={beachAccessFees} showZero />
       <MoneyLine
         label={b.service_fee_percent ? `Service (${b.service_fee_percent}%)` : 'Service fees'}
         value={b.service_fees}
       />
       <MoneyLine label="Insurance" value={b.insurance} />
-      <MoneyLine label="Utilities" value={b.utilities_amount} />
       <MoneyLine label="Security deposit" value={b.security_deposit} />
       {b.owner_collected_amount > 0 && (
         <MoneyLine
@@ -85,11 +83,9 @@ function PaymentDetails({ row }) {
 
 const BILL_FIELDS = [
   { key: 'accommodation_amount', label: 'Accommodation' },
-  { key: 'housekeeping_fees', label: 'Housekeeping' },
   { key: 'beach_access_fees', label: 'Beach access' },
   { key: 'service_fees', label: 'Service fees' },
   { key: 'insurance', label: 'Insurance' },
-  { key: 'utilities_amount', label: 'Utilities' },
   { key: 'security_deposit', label: 'Security deposit' },
 ];
 
@@ -337,8 +333,8 @@ export function CheckinsTodaySection({ embedded = false }) {
               {canAssign
                 ? 'Assign each arrival to an operations agent, then track collect and handover.'
                 : isAgent
-                  ? 'Your assigned arrivals — collect remaining balance, add a check-in comment, then hand over once cleaned.'
-                  : 'Collect remaining balance and hand the unit over once housekeeping has cleaned it.'}
+                  ? 'Your assigned arrivals — collect remaining balance, add a check-in comment, then hand over.'
+                  : 'Collect remaining balance and hand the unit over.'}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -376,7 +372,6 @@ export function CheckinsTodaySection({ embedded = false }) {
                 <th className="py-3 px-4">Guest</th>
                 <th className="py-3 px-4">Unit</th>
                 <th className="py-3 px-4">Payment details</th>
-                <th className="py-3 px-4">Housekeeping</th>
                 {canAssign ? <th className="py-3 px-4">Assign agent</th> : null}
                 <th className="py-3 px-4">Money collected</th>
                 {isAgent ? <th className="py-3 px-4">Check-in comment</th> : null}
@@ -432,17 +427,6 @@ export function CheckinsTodaySection({ embedded = false }) {
                     </td>
                     <td className="py-4 px-4">
                       <PaymentDetails row={r} />
-                    </td>
-                    <td className="py-4 px-4">
-                      {r.hk_cleaned ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 text-xs font-semibold">
-                          <Sparkles className="w-3.5 h-3.5" /> Cleaned
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 text-xs font-semibold">
-                          Not cleaned
-                        </span>
-                      )}
                     </td>
                     {canAssign ? (
                       <td className="py-4 px-4 min-w-[12rem]">
@@ -734,11 +718,9 @@ export function CheckinsTodaySection({ embedded = false }) {
                           title={
                             !r.ops_money_collected
                               ? 'Collect money first'
-                              : !r.hk_cleaned
-                                ? 'Waiting for housekeeping'
-                                : isAgent
-                                  ? 'Add a comment, then give unit to guest'
-                                  : 'Give unit to guest'
+                              : isAgent
+                                ? 'Add a comment, then give unit to guest'
+                                : 'Give unit to guest'
                           }
                           onClick={() => {
                             const comment =

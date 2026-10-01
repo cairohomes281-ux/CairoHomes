@@ -125,10 +125,7 @@ function makeEntry({ id, date, type, description, lines, meta }) {
 }
 
 function reservationFinancials(r) {
-  const utilitiesAmount =
-    parseFloat(r.utilities_amount) ||
-    (Number(r.nights) || 0) * (parseFloat(r.utilities_cost) || 0);
-  const fin = calcReservationFinancials(r, { ...r, utilities_amount: utilitiesAmount });
+  const fin = calcReservationFinancials(r, r);
   return { fin, split: bookingSplit(fin, r) };
 }
 
@@ -138,14 +135,12 @@ function guestQuotedTotal(r, split) {
 
 function stayExtras(r, fin) {
   const insurance = round2(parseFloat(r.insurance) || 0);
-  const utilities = round2(fin.utilitiesDeduction || 0);
   const broker = round2(fin.brokerDeduction || 0);
   const tenant = round2(fin.tenantDeduction || 0);
   const beach = round2(parseFloat(r.beach_access_fees) || 0);
-  const cleaning = round2(fin.housekeepingFees || 0);
   const agentPct = parseFloat(r.agent_commission_pct) || 0;
   const agent = agentPct > 0 ? round2((fin.companyCommission || 0) * (agentPct / 100)) : 0;
-  return { insurance, utilities, broker, tenant, beach, cleaning, agent };
+  return { insurance, broker, tenant, beach, agent };
 }
 
 function addCredit(lines, account, amount, memo) {
@@ -158,7 +153,7 @@ function addCredit(lines, account, amount, memo) {
  * Split a stay from the commission engine, not from leftover guest total.
  * Accommodation → owner / commission / broker / tenant.
  * Amounts already inside total_amount (website quotes) are taken from the remainder.
- * Housekeeping / insurance / utilities / beach billed on top of total_amount
+ * Insurance / beach billed on top of total_amount
  * increase AR instead of debiting miscellaneous revenue.
  */
 function allocateStayCredits(r, fin, split) {
@@ -191,9 +186,7 @@ function allocateStayCredits(r, fin, split) {
     return want;
   };
 
-  const unbilledCleaning = consume(extras.cleaning, '402000', 'Cleaning & turnover');
   const unbilledInsurance = consume(extras.insurance, '204000', 'Guest insurance escrow (refundable)');
-  consume(extras.utilities, '110000', 'Guest utilities (owner recoverable)');
   const unbilledBeach = consume(extras.beach, '409000', 'Beach access fees');
 
   const serviceFee = rem > 0.009 ? rem : 0;
@@ -201,8 +194,7 @@ function allocateStayCredits(r, fin, split) {
   rem = 0;
 
   const extraAr = round2(
-    addCredit(lines, '402000', unbilledCleaning, 'Cleaning billed in addition to stay total') +
-      addCredit(lines, '204000', unbilledInsurance, 'Insurance billed in addition to stay total') +
+    addCredit(lines, '204000', unbilledInsurance, 'Insurance billed in addition to stay total') +
       addCredit(lines, '409000', unbilledBeach, 'Beach access billed in addition to stay total')
   );
 
@@ -216,8 +208,8 @@ function allocateStayCredits(r, fin, split) {
   }
   const debitLines = [journalLine('105000', stayInvoice, 0, extraAr > 0.009 ? 'Guest invoice (stay + billed extras)' : 'Guest invoice / receivable')];
   if (vat > 0.009) {
-    debitLines.push(journalLine('105000', vat, 0, 'Output VAT 14% on commission + cleaning'));
-    addCredit(lines, '205000', vat, 'Output VAT 14% on commission + cleaning');
+    debitLines.push(journalLine('105000', vat, 0, 'Output VAT 14% on commission'));
+    addCredit(lines, '205000', vat, 'Output VAT 14% on commission');
   }
 
   return {
@@ -279,9 +271,7 @@ function bookingEntry(r, asOf) {
       sales_person: r.sales_person_name,
       owner_share: posted.owner,
       commission: posted.commission,
-      cleaning: posted.extras.cleaning,
       insurance: posted.extras.insurance,
-      utilities: posted.extras.utilities,
       broker: posted.extras.broker,
       tenant_markup: posted.extras.tenant,
       service_fee: posted.serviceFee,
@@ -604,7 +594,7 @@ function recurringEntries(rec, month, from, to) {
   const date = `${month}-${day}`;
   if (!inRange(date, from, to)) return [];
   const amt = round2(Number(rec.amount_egp) || 0);
-  const vatKinds = rec.kind === 'rent' || rec.kind === 'utilities';
+  const vatKinds = rec.kind === 'rent';
   const inputVat = vatKinds ? extractInputVat(amt) : { net: amt, vat: 0 };
   const expenseNet = inputVat.net;
   const vatAmt = inputVat.vat;
@@ -745,7 +735,6 @@ async function loadPortalData(from, to) {
             COALESCE(u.project, u.compound) AS project,
             u.commission_mode, u.company_commission_pct,
             u.company_commission_owner_pct, u.commission_tenant_pct,
-            COALESCE(u.utilities_cost, 0) AS utilities_cost,
             COALESCE(sp.full_name, '—') AS sales_person_name,
             COALESCE(sp.sales_commission_pct, 0) AS agent_commission_pct
      FROM reservations r
@@ -818,23 +807,6 @@ async function loadPortalData(from, to) {
     expParams
   );
 
-  let hkOrders = [];
-  try {
-    const hkParams = [from];
-    let hkSql = `status <> 'cancelled' AND created_at::date >= $1::date`;
-    if (to) {
-      hkParams.push(to);
-      hkSql += ` AND created_at::date <= $${hkParams.length}::date`;
-    }
-    const { rows } = await query(
-      `SELECT * FROM housekeeping_service_orders WHERE ${hkSql} ORDER BY created_at DESC`,
-      hkParams
-    );
-    hkOrders = rows;
-  } catch (_) {
-    hkOrders = [];
-  }
-
   let petty = [];
   try {
     const pcParams = [from];
@@ -896,7 +868,6 @@ async function loadPortalData(from, to) {
   } catch (_) {
     recurring = [
       { kind: 'rent', label: 'Office rent', account_code: '604000', amount_egp: 0, day_of_month: 1, is_active: 1 },
-      { kind: 'utilities', label: 'Company campus utilities', account_code: '608000', amount_egp: 0, day_of_month: 1, is_active: 1 },
       { kind: 'buffet', label: 'Staff buffet & meals', account_code: '508000', amount_egp: 0, day_of_month: 1, is_active: 1 },
     ];
   }
@@ -975,7 +946,6 @@ async function loadPortalData(from, to) {
     reservations,
     payments,
     expenses,
-    hkOrders,
     petty,
     manuals,
     payouts,
@@ -1081,26 +1051,6 @@ function buildJournal(data, from, to, { includeCloses = true } = {}) {
 
   for (const e of data.expenses || []) {
     journal.push(...expenseEntries(e));
-  }
-
-  for (const hk of data.hkOrders || []) {
-    const amt = round2(parseFloat(hk.amount) || 0);
-    if (!(amt > 0.009)) continue;
-    const date = isoDate(hk.created_at) || isoDate(hk.period_start);
-    if (!inRange(date, from, to)) continue;
-    journal.push(
-      makeEntry({
-        id: `HK-${hk.id}`,
-        date,
-        type: 'housekeeping_order',
-        description: `Housekeeping service — ${hk.client_name || hk.unit_number || 'Order'}`,
-        lines: [
-          journalLine('105000', amt, 0, 'Housekeeping service receivable'),
-          journalLine('402000', 0, amt, 'Cleaning & turnover'),
-        ],
-        meta: { housekeeping_order_id: hk.id, unit_number: hk.unit_number },
-      })
-    );
   }
 
   for (const pc of data.petty || []) {
@@ -1507,7 +1457,6 @@ function computeGrossReceipts(journal, reservations, from, to, sqlTotals) {
     custom: round2(custom),
     stay_count: stayCount,
     custom_count: customCount,
-    housekeeping: 0,
     other: round2(custom),
     owner_share: round2(ownerShare),
     company_share: round2(companyShare),
@@ -1744,8 +1693,7 @@ function cashFlow(periodJournal, opts = {}) {
       if (
         entry.type === 'expense' ||
         entry.type === 'expense_payment' ||
-        entry.type === 'recurring_payment' ||
-        entry.type === 'housekeeping_order'
+        entry.type === 'recurring_payment'
       ) {
         pushCfAmount(opVendors, entry, -credit);
       } else if (entry.type === 'refund' || entry.type === 'insurance_refund') {

@@ -16,7 +16,7 @@ async function generateOwnerSettlement({ ownerId, periodStart, periodEnd }) {
 
   const { rows: reservations } = await query(
     `SELECT r.*, u.company_commission_pct, u.company_commission_owner_pct,
-            u.commission_mode, u.commission_tenant_pct, u.utilities_cost, u.id AS unit_row_id
+            u.commission_mode, u.commission_tenant_pct, u.id AS unit_row_id
      FROM reservations r
      JOIN units u ON u.id = r.unit_id
      WHERE r.unit_id = ANY($1::uuid[])
@@ -30,10 +30,7 @@ async function generateOwnerSettlement({ ownerId, periodStart, periodEnd }) {
   let commission = 0;
   let net = 0;
   for (const r of reservations) {
-    const utilitiesAmount =
-      parseFloat(r.utilities_amount) ||
-      (Number(r.nights) || 0) * (parseFloat(r.utilities_cost) || 0);
-    const fin = calcReservationFinancials(r, { ...r, utilities_amount: utilitiesAmount });
+    const fin = calcReservationFinancials(r, r);
     gross += fin.grossAmount;
     commission += fin.companyCommission;
     net += fin.ownerNet;

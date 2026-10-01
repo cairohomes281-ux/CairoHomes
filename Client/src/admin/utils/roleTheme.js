@@ -146,11 +146,6 @@ export const ROLE_THEMES = {
     sidebarFrom: '#0a1f1e',
     avatarBg: '#32766d',
   }),
-  housekeeping: theme('housekeeping', 'Clean desk', MIST, { chipClass: 'bg-sky-50 text-sky-800' }),
-  housekeeping_supervisor: theme('housekeeping_supervisor', 'HK supervisor', MIST, {
-    sidebarFrom: '#122020',
-    chipClass: 'bg-sky-50 text-sky-900',
-  }),
   owner: theme('owner', 'Owner portal', SAGE),
 };
 

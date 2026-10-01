@@ -92,7 +92,6 @@ const GUEST_UNIT_OMIT = new Set([
   'company_commission_owner_pct',
   'commission_mode',
   'commission_tenant_pct',
-  'utilities_cost',
   'ops_status',
   'created_by_staff',
   'notes',

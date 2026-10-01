@@ -140,19 +140,12 @@ async function acceptWebsiteBooking(bookingId, staffUser, options = {}) {
     const existing = await query(`SELECT id FROM reservations WHERE booking_id = $1`, [bookingId]);
     if (!existing.rows[0]) {
       let pricePerNight = 0;
-      let utilitiesAmount = 0;
-      let housekeepingFees = 0;
       let beachAccessFees = 0;
       let stayTotal = Number(booking.total_egp) || 0;
 
       const { rows: units } = await query(`SELECT * FROM units WHERE id = $1`, [booking.unit_id]);
       const unit = units[0];
       if (unit) {
-        const { housekeepingFeeForUnit } = require('../lib/housekeeping');
-        housekeepingFees = housekeepingFeeForUnit(unit);
-        const costPerNight = parseFloat(unit.utilities_cost) || 0;
-        if (costPerNight > 0) utilitiesAmount = costPerNight * nights;
-
         try {
           const { quoteStay } = require('./pricing');
           const partyAdults = Number(booking.adults) > 0
@@ -172,7 +165,6 @@ async function acceptWebsiteBooking(bookingId, staffUser, options = {}) {
           if (quote?.available) {
             // Fee lines from current quote; stay total stays on booking.total_egp (promo already applied).
             pricePerNight = nights > 0 ? Number(quote.base_subtotal || quote.subtotal || 0) / nights : 0;
-            housekeepingFees = Number(quote.cleaning_fee_egp) || housekeepingFees;
             beachAccessFees = Number(quote.access_fee_egp) || 0;
           }
         } catch (_) {}
@@ -201,8 +193,6 @@ async function acceptWebsiteBooking(bookingId, staffUser, options = {}) {
           {
             nights,
             total_amount: stayTotal,
-            housekeeping_fees: housekeepingFees,
-            utilities_amount: utilitiesAmount,
           },
           unit || {}
         );
@@ -225,12 +215,12 @@ async function acceptWebsiteBooking(bookingId, staffUser, options = {}) {
            unit_id, guest_name, guest_email, guest_phone, check_in, check_out, nights,
            total_amount, amount_paid, payment_status, booking_source, sales_person_id,
            status, notes, booking_id, created_by, id_photo_urls, price_per_night,
-           utilities_amount, housekeeping_fees, transfer_proof_path, transfer_proof_name,
+           transfer_proof_path, transfer_proof_name,
            down_payment, payment_method,
            broker_name, broker_amount_per_night, broker_total,
            owner_collected_type, owner_collected_amount,
            adults, children, nanny_count, beach_access_fees
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Website',$11,'confirmed',$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Website',$11,'confirmed',$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
          RETURNING id`,
         [
           booking.unit_id,
@@ -249,8 +239,6 @@ async function acceptWebsiteBooking(bookingId, staffUser, options = {}) {
           createdBy,
           booking.id_photo_urls || [],
           pricePerNight,
-          utilitiesAmount,
-          housekeepingFees,
           evidenceUrl,
           evidenceName,
           paidCap,

@@ -330,12 +330,6 @@ export default function WebsiteBookingRequests() {
                             <span className="font-medium tabular-nums">{currency(pay.subtotal)}</span>
                           </div>
                         )}
-                        {Number(pay.housekeeping_fees) > 0 && (
-                          <div className="flex justify-between gap-3">
-                            <span className="text-gray-500">Housekeeping</span>
-                            <span className="font-medium tabular-nums">{currency(pay.housekeeping_fees)}</span>
-                          </div>
-                        )}
                         {Number(pay.beach_access_fees) > 0 && (
                           <div className="flex justify-between gap-3">
                             <span className="text-gray-500">Beach access</span>
@@ -563,12 +557,6 @@ export default function WebsiteBookingRequests() {
                         <div className="flex justify-between gap-3">
                           <span className="text-gray-500">Stay subtotal</span>
                           <span className="font-medium tabular-nums">{currency(pay.subtotal)}</span>
-                        </div>
-                      )}
-                      {Number(pay.housekeeping_fees) > 0 && (
-                        <div className="flex justify-between gap-3">
-                          <span className="text-gray-500">Housekeeping</span>
-                          <span className="font-medium tabular-nums">{currency(pay.housekeeping_fees)}</span>
                         </div>
                       )}
                       {Number(pay.beach_access_fees) > 0 && (

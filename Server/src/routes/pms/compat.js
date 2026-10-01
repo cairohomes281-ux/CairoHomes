@@ -225,7 +225,7 @@ router.get(
     const { rows } = await query(
       `SELECT
          r.id, r.guest_name, r.check_in, r.check_out, r.nights,
-         r.total_amount, r.price_per_night, r.utilities_amount, r.housekeeping_fees,
+         r.total_amount, r.price_per_night,
          r.is_owner_reservation, r.broker_total, r.broker_amount_per_night, r.broker_name,
          r.booking_id, r.booking_source, r.sales_person_id,
          COALESCE(u.unit_number, u.title, 'Unit') AS unit_name,
@@ -250,8 +250,6 @@ router.get(
 
     let totalGross = 0;
     let totalTenant = 0;
-    let totalUtilities = 0;
-    let totalHousekeeping = 0;
     let totalCompany = 0;
     let ownerCommission = 0;
     let regularCommission = 0;
@@ -268,8 +266,6 @@ router.get(
       const fin = calcReservationFinancials(r, r);
       totalGross += fin.grossAmount;
       totalTenant += fin.tenantDeduction;
-      totalUtilities += fin.utilitiesDeduction;
-      totalHousekeeping += fin.housekeepingFees;
       totalCompany += fin.companyCommission;
       if (fin.isOwner) ownerCommission += fin.companyCommission;
       else regularCommission += fin.companyCommission;
@@ -304,8 +300,6 @@ router.get(
         agent_commission: agent.agentAmount,
         gross: fin.grossAmount,
         tenant_deduction: fin.tenantDeduction,
-        utilities: fin.utilitiesDeduction,
-        housekeeping: fin.housekeepingFees,
         company_commission: fin.companyCommission,
         owner_net: fin.ownerNet,
         applied_pct: fin.appliedCommissionPct,
@@ -327,8 +321,6 @@ router.get(
       totals: {
         totalGross: round2(totalGross),
         totalTenant: round2(totalTenant),
-        totalUtilities: round2(totalUtilities),
-        totalHousekeeping: round2(totalHousekeeping),
         totalCompany: round2(totalCompany),
         regularCommission: round2(regularCommission),
         ownerRevenue: round2(ownerCommission),
@@ -471,13 +463,12 @@ router.get('/finance/summary', requireRoles('admin'), async (req, res, next) => 
 
     const { rows: reservations } = await query(
       `SELECT
-         r.id, r.nights, r.total_amount, r.price_per_night, r.utilities_amount,
-         r.housekeeping_fees, r.is_owner_reservation,
+         r.id, r.nights, r.total_amount, r.price_per_night,
+         r.is_owner_reservation,
          r.broker_total, r.broker_amount_per_night,
          r.booking_id, r.booking_source, r.sales_person_id,
          u.commission_mode, u.company_commission_pct,
          u.company_commission_owner_pct, u.commission_tenant_pct,
-         COALESCE(u.utilities_cost, 0) AS utilities_cost,
          COALESCE(sp.sales_commission_pct, 0) AS agent_commission_pct
        FROM reservations r
        JOIN units u ON u.id = r.unit_id
@@ -490,27 +481,17 @@ router.get('/finance/summary', requireRoles('admin'), async (req, res, next) => 
     let companyCommission = 0;
     let tenantCommission = 0;
     let ownerOwed = 0;
-    let housekeepingStayFees = 0;
-    let utilitiesCollected = 0;
     let manualAgentCommission = 0;
     let websiteAgentCommission = 0;
     let websiteCompanyCommission = 0;
     let manualCompanyCommission = 0;
 
     for (const r of reservations) {
-      const utilitiesAmount =
-        parseFloat(r.utilities_amount) ||
-        (Number(r.nights) || 0) * (parseFloat(r.utilities_cost) || 0);
-      const fin = calcReservationFinancials(r, {
-        ...r,
-        utilities_amount: utilitiesAmount,
-      });
+      const fin = calcReservationFinancials(r, r);
       reservationRevenue += fin.grossAmount;
       companyCommission += fin.companyCommission;
       tenantCommission += fin.tenantDeduction;
       ownerOwed += fin.ownerNet;
-      housekeepingStayFees += fin.housekeepingFees;
-      utilitiesCollected += fin.utilitiesDeduction || utilitiesAmount;
 
       const fromWebsite = isWebsiteOriginReservation(r);
       const auto = agentCommissionFromCompany(fin.companyCommission, r.agent_commission_pct);
@@ -523,26 +504,6 @@ router.get('/finance/summary', requireRoles('admin'), async (req, res, next) => 
       }
     }
 
-    
-    const hkParams = [from_date];
-    let hkWhere = `status <> 'cancelled' AND period_start >= $1::date`;
-    if (to_date) {
-      hkParams.push(to_date);
-      hkWhere += ` AND period_end <= $${hkParams.length}::date`;
-    }
-    let housekeepingServiceRevenue = 0;
-    try {
-      const { rows: hkOrders } = await query(
-        `SELECT COALESCE(SUM(amount), 0)::float AS total
-         FROM housekeeping_service_orders WHERE ${hkWhere}`,
-        hkParams
-      );
-      housekeepingServiceRevenue = Number(hkOrders[0]?.total) || 0;
-    } catch (_) {
-      
-    }
-
-    
     const expParams = [from_date];
     let expWhere = `expense_date >= $1::date`;
     if (to_date) {
@@ -560,15 +521,11 @@ router.get('/finance/summary', requireRoles('admin'), async (req, res, next) => 
     );
     let marketing = 0;
     let salaryLedger = 0;
-    let actualHousekeeping = 0;
-    let actualUtilities = 0;
     let otherExpenses = 0;
     for (const row of expenseRows) {
       const total = Number(row.total) || 0;
       if (row.category === 'marketing') marketing += total;
       else if (row.category === 'salary') salaryLedger += total;
-      else if (row.category === 'housekeeping_cost') actualHousekeeping += total;
-      else if (row.category === 'utilities_cost') actualUtilities += total;
       else otherExpenses += total;
     }
 
@@ -618,15 +575,11 @@ router.get('/finance/summary', requireRoles('admin'), async (req, res, next) => 
       
     }
 
-    const housekeepingRevenue = round2(housekeepingStayFees + housekeepingServiceRevenue);
-    const utilitiesRevenue = round2(utilitiesCollected);
-    const totalRevenue = round2(reservationRevenue + housekeepingRevenue + utilitiesRevenue);
+    const totalRevenue = round2(reservationRevenue);
 
     const deductibleExpenses = round2(
       ownerOwed +
         salaryAndCommissions +
-        actualHousekeeping +
-        actualUtilities +
         pettyCash +
         marketing +
         otherExpenses
@@ -649,10 +602,6 @@ router.get('/finance/summary', requireRoles('admin'), async (req, res, next) => 
       
       totalRevenue,
       reservationRevenue: round2(reservationRevenue),
-      housekeepingRevenue,
-      housekeepingStayFees: round2(housekeepingStayFees),
-      housekeepingServiceRevenue: round2(housekeepingServiceRevenue),
-      utilitiesRevenue,
       
       companyCommission: round2(companyCommission),
       tenantCommission: round2(tenantCommission),
@@ -667,11 +616,6 @@ router.get('/finance/summary', requireRoles('admin'), async (req, res, next) => 
       salaryAndCommissions,
       
       salaries,
-      housekeeping: round2(actualHousekeeping),
-      housekeepingCost: round2(actualHousekeeping),
-      actualHousekeeping: round2(actualHousekeeping),
-      utilities: round2(actualUtilities),
-      actualUtilities: round2(actualUtilities),
       pettyCash: round2(pettyCash),
       marketing: round2(marketing),
       expenses: round2(otherExpenses),
@@ -697,10 +641,6 @@ router.get('/finance/summary', requireRoles('admin'), async (req, res, next) => 
         websiteMakerCommission: 0,
         agentCommissions,
         salaryAndCommissions,
-        actualHousekeeping: round2(actualHousekeeping),
-        housekeeping: round2(actualHousekeeping),
-        actualUtilities: round2(actualUtilities),
-        utilities: round2(actualUtilities),
         pettyCash: round2(pettyCash),
         marketing: round2(marketing),
         expenses: round2(otherExpenses),
@@ -1357,7 +1297,6 @@ router.get('/website-bookings', async (req, res, next) => {
       let breakdown = {
         nights: null,
         subtotal: null,
-        housekeeping_fees: null,
         beach_access_fees: null,
         service_fees: null,
         security_deposit: null,
@@ -1392,7 +1331,6 @@ router.get('/website-bookings', async (req, res, next) => {
             const quoteTotal = Number(quote.total_egp) || 0;
             const lineSum =
               Number(quote.subtotal || 0) +
-              Number(quote.cleaning_fee_egp || 0) +
               Number(quote.access_fee_egp || 0) +
               Number(quote.service_fee_egp || 0);
             // Guest checkout total (includes promo) is authoritative — never replace with a fresh undiscounted quote.
@@ -1410,7 +1348,6 @@ router.get('/website-bookings', async (req, res, next) => {
             breakdown = {
               nights: quote.nights,
               subtotal: quote.subtotal,
-              housekeeping_fees: quote.cleaning_fee_egp,
               beach_access_fees: quote.access_fee_egp,
               service_fees: quote.service_fee_egp,
               service_fee_percent: quote.service_fee_percent,
@@ -1622,131 +1559,6 @@ router.get('/treasury', requireRoles('admin'), async (req, res, next) => {
   }
 });
 
-router.get('/utilities', async (req, res, next) => {
-  try {
-    const from_date = clampFromDate(req.query.from_date);
-    const { to_date, project, unit_id } = req.query;
-    const params = [from_date];
-    const conditions = [`r.status <> 'cancelled'`, `r.check_in >= $1::date`];
-
-    if (to_date) {
-      params.push(to_date);
-      conditions.push(`r.check_out <= $${params.length}::date`);
-    }
-    if (project) {
-      params.push(project);
-      conditions.push(`(u.project = $${params.length} OR u.compound = $${params.length})`);
-    }
-    if (unit_id) {
-      params.push(unit_id);
-      conditions.push(`r.unit_id = $${params.length}`);
-    }
-
-    const { rows } = await query(
-      `SELECT
-         r.id,
-         u.id AS unit_id,
-         COALESCE(u.unit_number, u.title, 'Unit') AS unit_name,
-         COALESCE(u.project, u.compound) AS project,
-         COALESCE(u.utilities_cost, 0) AS utilities_cost,
-         r.guest_name,
-         r.check_in,
-         r.check_out,
-         r.nights,
-         r.total_amount,
-         COALESCE(
-           NULLIF(r.utilities_amount, 0),
-           (r.nights * COALESCE(u.utilities_cost, 0))
-         )::real AS total_utilities_deducted
-       FROM reservations r
-       JOIN units u ON u.id = r.unit_id
-       WHERE ${conditions.join(' AND ')}
-       ORDER BY r.check_in DESC`,
-      params
-    );
-
-    const data = rows.filter((r) => Number(r.total_utilities_deducted) > 0);
-    const totalUtilities = data.reduce(
-      (s, r) => s + (Number(r.total_utilities_deducted) || 0),
-      0
-    );
-
-    res.json({
-      data,
-      summary: {
-        total_utilities_deducted: totalUtilities,
-        total_reservations: data.length,
-      },
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.get('/housekeeping', async (req, res, next) => {
-  try {
-    const from_date = clampFromDate(req.query.from_date);
-    const { to_date, unit_id, project } = req.query;
-    const params = [from_date];
-    const conditions = [
-      `r.status <> 'cancelled'`,
-      `COALESCE(r.housekeeping_fees, 0) > 0`,
-      `r.check_in >= $1::date`,
-    ];
-
-    if (to_date) {
-      params.push(to_date);
-      conditions.push(`r.check_in <= $${params.length}::date`);
-    }
-    if (unit_id) {
-      params.push(unit_id);
-      conditions.push(`r.unit_id = $${params.length}`);
-    }
-    if (project) {
-      params.push(project);
-      conditions.push(`(u.project = $${params.length} OR u.compound = $${params.length})`);
-    }
-
-    const { rows } = await query(
-      `SELECT
-         r.id,
-         r.guest_name,
-         r.check_in,
-         r.check_out,
-         r.nights,
-         r.status,
-         r.payment_status,
-         r.housekeeping_fees,
-         u.id AS unit_id,
-         COALESCE(u.unit_number, u.title, 'Unit') AS unit_name,
-         COALESCE(u.project, u.compound) AS project
-       FROM reservations r
-       JOIN units u ON u.id = r.unit_id
-       WHERE ${conditions.join(' AND ')}
-       ORDER BY r.check_in DESC, r.id DESC`,
-      params
-    );
-
-    const total = rows.reduce((s, r) => s + (parseFloat(r.housekeeping_fees) || 0), 0);
-    const { rows: projectRows } = await query(
-      `SELECT DISTINCT COALESCE(project, compound) AS project
-       FROM units
-       WHERE COALESCE(project, compound) IS NOT NULL
-       ORDER BY 1`
-    );
-
-    res.json({
-      summary: {
-        total: Number(total.toFixed(2)),
-        count: rows.length,
-      },
-      rows,
-      projects: projectRows.map((p) => p.project).filter(Boolean),
-    });
-  } catch (e) {
-    next(e);
-  }
-});
 router.get('/reservations/blocked-dates', async (req, res, next) => {
   try {
     const unitId = req.query.unit_id;
@@ -1954,26 +1766,23 @@ router.put(
          booking_source = COALESCE($14, booking_source),
          sales_person_id = COALESCE($15, sales_person_id),
          is_owner_reservation = COALESCE($16, is_owner_reservation),
-         housekeeping_fees = COALESCE($17, housekeeping_fees),
-         insurance = COALESCE($18, insurance),
-         down_payment = COALESCE($19, down_payment),
-         utilities_cost_override = COALESCE($20, utilities_cost_override),
-         broker_name = COALESCE($21, broker_name),
-         broker_amount_per_night = COALESCE($22, broker_amount_per_night),
-         broker_total = COALESCE($23, broker_total),
-         owner_collected_type = COALESCE($24, owner_collected_type),
-         owner_collected_amount = COALESCE($25, owner_collected_amount),
-         payment_method = COALESCE($26, payment_method),
-         unit_id = COALESCE($27, unit_id),
-         hold_expires_at = CASE WHEN $28::boolean THEN NULL ELSE hold_expires_at END,
-         adults = COALESCE($30, adults),
-         children = COALESCE($31, children),
-         nanny_count = COALESCE($32, nanny_count),
-         sales_label = COALESCE($33, sales_label),
-         utilities_amount = COALESCE($34, utilities_amount),
-         beach_access_fees = COALESCE($35, beach_access_fees),
+         insurance = COALESCE($17, insurance),
+         down_payment = COALESCE($18, down_payment),
+         broker_name = COALESCE($19, broker_name),
+         broker_amount_per_night = COALESCE($20, broker_amount_per_night),
+         broker_total = COALESCE($21, broker_total),
+         owner_collected_type = COALESCE($22, owner_collected_type),
+         owner_collected_amount = COALESCE($23, owner_collected_amount),
+         payment_method = COALESCE($24, payment_method),
+         unit_id = COALESCE($25, unit_id),
+         hold_expires_at = CASE WHEN $26::boolean THEN NULL ELSE hold_expires_at END,
+         adults = COALESCE($28, adults),
+         children = COALESCE($29, children),
+         nanny_count = COALESCE($30, nanny_count),
+         sales_label = COALESCE($31, sales_label),
+         beach_access_fees = COALESCE($32, beach_access_fees),
          updated_at = now()
-       WHERE id = $29 RETURNING *`,
+       WHERE id = $27 RETURNING *`,
       [
         b.status ?? null,
         b.payment_status ?? null,
@@ -1993,14 +1802,8 @@ router.put(
         b.is_owner_reservation !== undefined
           ? (b.is_owner_reservation === true || b.is_owner_reservation === 1 || b.is_owner_reservation === '1' ? 1 : 0)
           : null,
-        b.housekeeping_fees != null && b.housekeeping_fees !== '' ? parseFloat(b.housekeeping_fees) : null,
         b.insurance != null && b.insurance !== '' ? parseFloat(b.insurance) : null,
         b.down_payment != null && b.down_payment !== '' ? parseFloat(b.down_payment) : null,
-        b.utilities_cost_override !== undefined
-          ? (b.utilities_cost_override === '' || b.utilities_cost_override == null
-              ? null
-              : parseFloat(b.utilities_cost_override))
-          : null,
         b.broker_name ?? null,
         b.broker_amount_per_night !== undefined ? brokerPerNight : null,
         b.broker_amount_per_night !== undefined || b.broker_total !== undefined ? brokerTotal : null,
@@ -2020,9 +1823,6 @@ router.put(
               const { resolveSalesLabel } = require('../../lib/salesNameMatch');
               return resolveSalesLabel(b.sales_label ?? b.sales_owner ?? '');
             })()
-          : null,
-        b.utilities_amount != null && b.utilities_amount !== ''
-          ? parseFloat(b.utilities_amount) || 0
           : null,
         b.beach_access_fees != null && b.beach_access_fees !== ''
           ? parseFloat(b.beach_access_fees) || 0
