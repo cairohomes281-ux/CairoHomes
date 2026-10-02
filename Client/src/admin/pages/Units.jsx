@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Edit2, Trash2, Building2, BedDouble, Bath, Layers, Eye, ExternalLink, DollarSign, Globe, EyeOff } from 'lucide-react';
+import { Plus, Edit2, Trash2, Building2, BedDouble, Bath, Users, Eye, ExternalLink, DollarSign, Globe, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import { usePermissions } from '../hooks/usePermissions';
@@ -15,19 +15,12 @@ import { currency, UNIT_TYPES, normalizePropertyType, unitDisplay } from '../uti
 import SearchableSelect from '../components/ui/SearchableSelect';
 import { useProjectCatalog } from '../../hooks/useProjectCatalog';
 import { normalizeProjectName } from '../../utils/projectNames';
-import TagSelect from '../components/ui/TagSelect';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 
 function guestListingPath(unit) {
   const slug = String(unit?.slug || '').trim();
   return slug ? `/listings/${encodeURIComponent(slug)}` : null;
 }
-
-const COMMISSION_MODES = [
-  { value: 'A', label: 'Fixed Rate', desc: 'Commission = nightly rate × % (all bookings)' },
-  { value: 'B', label: 'Split Rate', desc: 'Nightly rate × owner % + nightly rate × tenant %' },
-  { value: 'C', label: 'Source-Based', desc: 'Nightly rate × via-us/via-owner % (+ tenant %)' },
-];
 
 const VIEW_OPTIONS = [
   'Nile view',
@@ -41,196 +34,33 @@ const VIEW_OPTIONS = [
 ];
 
 
-const AMENITY_SUGGESTIONS = [
-  'Wi-Fi',
-  'Bed linens',
-  'Cooking basics',
-  'Free parking',
-  'Heating',
-  'Stove',
-  'Microwave',
-  'Kettle',
-  'Refrigerator',
-  'Air conditioning',
-  'Smart TV',
-  'Washer',
-  'Dryer',
-  'Dishwasher',
-  'Oven',
-  'Coffee maker',
-  'Toaster',
-  'Blender',
-  'Dining table',
-  'Private balcony',
-  'Private terrace',
-  'Blackout curtains',
-  'Extra pillows and blankets',
-  'Hangers',
-  'Iron',
-  'Hair dryer',
-  'Shampoo',
-  'Body soap',
-  'Hot water',
-  'Bathtub',
-  'Shower',
-  'Bidet',
-  'Dedicated workspace',
-  'Safe',
-  'Elevator access',
-  'Ground-floor access',
-  'Keyless smart lock',
-  'Self check-in',
-  'Kitchenette',
-  'Full kitchen',
-  'Outdoor dining area',
-  'BBQ grill',
-  'Private pool access',
-];
-
-const FLOOR_OPTIONS = [
-  { value: 0, label: 'Ground' },
-  { value: 1, label: '1st' },
-  { value: 2, label: '2nd' },
-  { value: 3, label: '3rd' },
-  { value: 4, label: '4th' },
-  { value: 5, label: '5th' },
-  { value: 6, label: '6th' },
-  { value: 7, label: '7th' },
-  { value: 8, label: '8th' },
-  { value: 9, label: '9th' },
-  { value: 10, label: '10th' },
-  { value: 11, label: '11th' },
-  { value: 12, label: '12th' },
-  { value: 13, label: '13th' },
-  { value: 14, label: '14th' },
-  { value: 15, label: '15th' },
-];
-
 const EMPTY_FORM = {
-  name: '', destination: '', project: '', unit_number: '', type: 'Apartment',
-  bedrooms: 1, bathrooms: 1, floor: 0, guests: 2, has_nanny_room: false,
-  disable_automatic_reservations: false,
-  owner_name: '', owner_email: '', owner_phone: '',
-  commission_mode: 'A',
-  company_commission_pct: 20,
-  company_commission_owner_pct: 10,
-  commission_tenant_pct: 0,
-  photo_urls: [],
+  unit_number: '',
+  name: '',
+  price_per_night: '',
+  price_monthly: '',
+  location_link: '',
   photos_folder_url: '',
   cover_drive_url: '',
   cover_url: '',
-  price_per_night: '',
-  price_monthly: '',
-  min_nights: '',
-  ops_status: 'available',
-  listing_status: 'published',
-  view: '',
+  photo_urls: [],
   description: '',
-  amenities: [],
-  location_link: '',
-  unit_area: '',
+  bedrooms: 1,
+  bathrooms: 1,
+  view: '',
+  destination: '',
+  project: '',
+  type: 'Apartment',
+  guests: 2,
 };
 
-
-function guestsFromBedrooms(bedrooms, hasNannyRoom = false) {
+function guestsFromBedrooms(bedrooms) {
   const n = Number(bedrooms);
   if (!Number.isFinite(n) || n <= 0) return 2;
-  const base = Math.round(n) * 2;
-  return hasNannyRoom ? base + 1 : base;
-}
-
-function toTagList(value) {
-  if (Array.isArray(value)) return value.filter(Boolean);
-  if (typeof value === 'string' && value.trim()) {
-    return value.split(',').map((s) => s.trim()).filter(Boolean);
-  }
-  return [];
-}
-
-function CommissionSection({ form, setForm }) {
-  const mode = form.commission_mode;
-  return (
-    <div className="border border-gray-200 rounded-xl p-4 space-y-4">
-      <div>
-        <label className="label">Commission Structure</label>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1">
-          {COMMISSION_MODES.map(m => (
-            <button
-              key={m.value}
-              type="button"
-              onClick={() => setForm(f => ({ ...f, commission_mode: m.value }))}
-              className={`text-left px-3 py-2.5 rounded-lg border-2 transition-colors ${
-                mode === m.value
-                  ? 'border-primary-500 bg-primary-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className={`text-xs font-bold ${mode === m.value ? 'text-primary-700' : 'text-gray-700'}`}>
-                Mode {m.value} — {m.label}
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5">{m.desc}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="form-grid">
-        {mode === 'A' && (
-          <div>
-            <label className="label">Commission % (All Bookings)</label>
-            <input type="number" min="0" max="100" step="0.5" className="input"
-              value={form.company_commission_pct}
-              onChange={e => setForm(f => ({ ...f, company_commission_pct: e.target.value }))} />
-          </div>
-        )}
-
-        {mode === 'B' && (
-          <>
-            <div>
-              <label className="label">Owner Commission %</label>
-              <input type="number" min="0" max="100" step="0.5" className="input"
-                value={form.company_commission_pct}
-                onChange={e => setForm(f => ({ ...f, company_commission_pct: e.target.value }))} />
-            </div>
-            <div>
-              <label className="label">Tenant Commission %</label>
-              <input type="number" min="0" max="100" step="0.5" className="input"
-                value={form.commission_tenant_pct}
-                onChange={e => setForm(f => ({ ...f, commission_tenant_pct: e.target.value }))} />
-            </div>
-          </>
-        )}
-
-        {mode === 'C' && (
-          <>
-            <div>
-              <label className="label">Owner Commission % — Via Us</label>
-              <input type="number" min="0" max="100" step="0.5" className="input"
-                value={form.company_commission_pct}
-                onChange={e => setForm(f => ({ ...f, company_commission_pct: e.target.value }))} />
-            </div>
-            <div>
-              <label className="label">Owner Commission % — Via Owner</label>
-              <input type="number" min="0" max="100" step="0.5" className="input"
-                value={form.company_commission_owner_pct}
-                onChange={e => setForm(f => ({ ...f, company_commission_owner_pct: e.target.value }))} />
-            </div>
-            <div>
-              <label className="label">Tenant Commission %</label>
-              <input type="number" min="0" max="100" step="0.5" className="input"
-                value={form.commission_tenant_pct}
-                onChange={e => setForm(f => ({ ...f, commission_tenant_pct: e.target.value }))} />
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
+  return Math.round(n) * 2;
 }
 
 function UnitForm({ form, setForm, listingType = 'rent' }) {
-  const { isAdmin, canManageUnits } = usePermissions();
-  const canSeeOwner = isAdmin || canManageUnits;
   const isLongTerm = listingType === 'long_term';
   const { destinations, projectsByDestination } = useProjectCatalog();
   const projectOptions = projectsByDestination[form.destination] || [];
@@ -246,7 +76,12 @@ function UnitForm({ form, setForm, listingType = 'rent' }) {
   return (
     <div className="space-y-4">
       <div className="form-grid">
-        <div><label className="label">Unit Name *</label><input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Marina Heights A101" /></div>
+        <div>
+          <label className="label">Internal name *</label>
+          <input className="input" value={form.unit_number} onChange={e => setForm(f => ({ ...f, unit_number: e.target.value.toUpperCase() }))} placeholder="e.g. ZAM-A101" />
+          <p className="text-xs text-gray-400 mt-1">For staff only — guests never see this.</p>
+        </div>
+        <div><label className="label">Unit name *</label><input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Nile View Apartment" /></div>
         <div>
           <label className="label">Destination *</label>
           <select
@@ -285,9 +120,8 @@ function UnitForm({ form, setForm, listingType = 'rent' }) {
             )}
           </select>
         </div>
-        <div><label className="label">Unit Number *</label><input className="input" value={form.unit_number} onChange={e => setForm(f => ({ ...f, unit_number: e.target.value.toUpperCase() }))} placeholder="e.g. A101" /></div>
         <div>
-          <label className="label">Type *</label>
+          <label className="label">Unit type *</label>
           <SearchableSelect value={form.type} onChange={v => setForm(f => ({ ...f, type: v }))}
             placeholder="Select type…"
             options={UNIT_TYPES.map(t => ({ value: t, label: t }))}
@@ -303,7 +137,7 @@ function UnitForm({ form, setForm, listingType = 'rent' }) {
           </select>
         </div>
         <div>
-          <label className="label">Bedrooms</label>
+          <label className="label">Number of bedrooms *</label>
           <input
             type="number"
             min="0"
@@ -314,170 +148,55 @@ function UnitForm({ form, setForm, listingType = 'rent' }) {
               setForm((f) => ({
                 ...f,
                 bedrooms,
-                guests: guestsFromBedrooms(bedrooms, f.has_nanny_room),
+                guests: guestsFromBedrooms(bedrooms),
               }));
             }}
           />
         </div>
-        <div><label className="label">Bathrooms</label><input type="number" min="0" className="input" value={form.bathrooms} onChange={e => setForm(f => ({ ...f, bathrooms: e.target.value }))} /></div>
+        <div><label className="label">Number of bathrooms *</label><input type="number" min="0" className="input" value={form.bathrooms} onChange={e => setForm(f => ({ ...f, bathrooms: e.target.value }))} /></div>
         <div>
-          <label className="label">Floor</label>
-          <select
-            className="input"
-            value={FLOOR_OPTIONS.some((o) => String(o.value) === String(form.floor)) ? form.floor : 0}
-            onChange={(e) => setForm((f) => ({ ...f, floor: Number(e.target.value) }))}
-          >
-            {FLOOR_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="sm:col-span-2 flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-          <input
-            id="has_nanny_room"
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600"
-            checked={!!form.has_nanny_room}
-            onChange={(e) => {
-              const has_nanny_room = e.target.checked;
-              setForm((f) => ({
-                ...f,
-                has_nanny_room,
-                guests: guestsFromBedrooms(f.bedrooms, has_nanny_room),
-              }));
-            }}
-          />
-          <div>
-            <label htmlFor="has_nanny_room" className="text-sm font-medium text-gray-800">
-              Nanny room
-            </label>
-            <p className="text-xs text-gray-500">
-              Optional. Capacity becomes (bedrooms × 2) + 1. Nannies are not charged beach access.
-            </p>
-          </div>
-        </div>
-        {!isLongTerm ? (
-          <div className="sm:col-span-2 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2.5">
-            <input
-              id="disable_automatic_reservations"
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600"
-              checked={!!form.disable_automatic_reservations}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  disable_automatic_reservations: e.target.checked,
-                }))
-              }
-            />
-            <div>
-              <label
-                htmlFor="disable_automatic_reservations"
-                className="text-sm font-medium text-gray-800"
-              >
-                Disable automatic reservations
-              </label>
-              <p className="text-xs text-gray-500">
-                Guests cannot book this unit online. The listing shows a WhatsApp Inquiry button
-                instead of Reserve.
-              </p>
-            </div>
-          </div>
-        ) : null}
-        <div>
-          <label className="label">Guests / capacity</label>
+          <label className="label">Number of guests *</label>
           <input
             type="number"
-            className="input bg-gray-50"
-            value={guestsFromBedrooms(form.bedrooms, form.has_nanny_room)}
-            readOnly
+            min="1"
+            className="input"
+            value={form.guests}
+            onChange={(e) => setForm((f) => ({ ...f, guests: e.target.value }))}
           />
-          <p className="text-xs text-gray-400 mt-1">
-            Auto: {form.has_nanny_room ? '2 × bedrooms + 1 nanny' : '2 × bedrooms'} (studio = 2)
-          </p>
         </div>
         {isLongTerm ? (
-          <>
-            <div>
-              <label className="label">Monthly rent (EGP) *</label>
-              <input
-                type="number"
-                min="0"
-                step="1"
-                className="input"
-                value={form.price_monthly}
-                onChange={(e) => setForm((f) => ({ ...f, price_monthly: e.target.value }))}
-                placeholder="e.g. 45000"
-              />
-            </div>
-            <div>
-              <label className="label">Minimum stay (nights) *</label>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                className="input"
-                value={form.min_nights}
-                onChange={(e) => setForm((f) => ({ ...f, min_nights: e.target.value }))}
-                placeholder="e.g. 30"
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                Set on this unit only — the project minimum stay does not apply.
-              </p>
-            </div>
-            <div>
-              <label className="label">Area (m²)</label>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                className="input"
-                value={form.unit_area}
-                onChange={(e) => setForm((f) => ({ ...f, unit_area: e.target.value }))}
-                placeholder="e.g. 145"
-              />
-            </div>
-            <p className="sm:col-span-2 text-xs text-gray-500">
-              Guests can see available dates and send a WhatsApp inquiry, but cannot book this unit
-              online. Reservations are made from the Schedule or Reservations page.
-            </p>
-          </>
+          <div>
+            <label className="label">Price per month (EGP) *</label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              className="input"
+              value={form.price_monthly}
+              onChange={(e) => setForm((f) => ({ ...f, price_monthly: e.target.value }))}
+              placeholder="e.g. 45000"
+            />
+          </div>
         ) : (
-          <>
-            <div>
-              <label className="label">Fallback nightly (EGP)</label>
-              <input type="number" min="0" step="0.01" className="input" value={form.price_per_night} onChange={e => setForm(f => ({ ...f, price_per_night: e.target.value }))} placeholder="Display price per night" />
-            </div>
-            <p className="sm:col-span-2 text-xs text-gray-500">
-              Beach access is set on the project (Destinations &amp; Projects), not per unit.
-            </p>
-          </>
+          <div>
+            <label className="label">Price per night (EGP) *</label>
+            <input type="number" min="0" step="1" className="input" value={form.price_per_night} onChange={e => setForm(f => ({ ...f, price_per_night: e.target.value }))} placeholder="e.g. 3500" />
+          </div>
         )}
       </div>
 
       <div className="border-t border-gray-100 pt-4 space-y-3">
-        <h4 className="text-sm font-semibold text-gray-700">Guest listing</h4>
         <div>
-          <label className="label">Description</label>
-          <textarea className="input resize-none" rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="The property…" />
+          <label className="label">Description *</label>
+          <textarea className="input resize-none" rows={4} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="The property…" />
         </div>
         <div className="form-grid">
-          <TagSelect
-            label="Amenities"
-            placeholder="Select or type amenities…"
-            suggestions={AMENITY_SUGGESTIONS}
-            selectedTags={form.amenities || []}
-            onTagsChange={(tags) => setForm((f) => ({ ...f, amenities: tags }))}
-          />
-          <p className="sm:col-span-2 text-xs text-gray-400 -mt-2">
-            Compound facilities are managed on Destinations → project (shared by all units in that project).
-          </p>
           <div className="sm:col-span-2">
-            <label className="label">Location / maps link</label>
+            <label className="label">Location (Google Maps link) *</label>
             <input type="url" className="input" value={form.location_link} onChange={e => setForm(f => ({ ...f, location_link: e.target.value }))} placeholder="https://maps.google.com/…" />
           </div>
           <div className="sm:col-span-2">
-            <label className="label">Cover photo (Google Drive file)</label>
+            <label className="label">Cover photo link (optional)</label>
             <input
               type="url"
               className="input"
@@ -516,7 +235,7 @@ function UnitForm({ form, setForm, listingType = 'rent' }) {
             )}
           </div>
           <div className="sm:col-span-2">
-            <label className="label">Google Drive folder (photos)</label>
+            <label className="label">Google Drive link (photos) *</label>
             <input
               type="url"
               className="input"
@@ -533,52 +252,12 @@ function UnitForm({ form, setForm, listingType = 'rent' }) {
             )}
           </div>
         </div>
-      </div>
-
-      {canSeeOwner && (
-        <div className="border-t border-gray-100 pt-4">
-          <h4 className="text-sm font-semibold text-gray-700 mb-3">Owner Details</h4>
-          <div className="form-grid">
-            <div><label className="label">Owner Name</label><input className="input" value={form.owner_name} onChange={e => setForm(f => ({ ...f, owner_name: e.target.value }))} /></div>
-            <div><label className="label">Owner Email</label><input type="email" className="input" value={form.owner_email} onChange={e => setForm(f => ({ ...f, owner_email: e.target.value }))} /></div>
-            <div><label className="label">Owner Phone</label><input className="input" value={form.owner_phone} onChange={e => setForm(f => ({ ...f, owner_phone: e.target.value }))} /></div>
-          </div>
-        </div>
-      )}
-
-      <div className="border-t border-gray-100 pt-4">
-        <h4 className="text-sm font-semibold text-gray-700 mb-3">Commission Structure</h4>
-        <CommissionSection form={form} setForm={setForm} />
-      </div>
-
-      <div className="border-t border-gray-100 pt-4">
-        <div className="form-grid">
-          <div>
-            <label className="label">Ops status</label>
-            <SearchableSelect value={form.ops_status} onChange={v => setForm(f => ({ ...f, ops_status: v }))}
-              options={[{ value: 'available', label: 'Available' }, { value: 'occupied', label: 'Occupied' }, { value: 'maintenance', label: 'Maintenance' }]}
-            />
-          </div>
-          <div>
-            <label className="label">Listing status</label>
-            <div className="input bg-gray-50 text-sm text-gray-700 flex items-center">
-              Auto — published when every field is filled, otherwise draft
-            </div>
-            <p className="text-xs text-gray-400 mt-1">
-              Status is set automatically. Missing required fields keeps the unit as draft and hidden from guests. Beach access is configured on the project.
-            </p>
-          </div>
-        </div>
+        <p className="text-xs text-gray-400">
+          The unit is published automatically once every required field (*) is filled; otherwise it stays a hidden draft.
+        </p>
       </div>
     </div>
   );
-}
-
-function CommissionBadge({ unit }) {
-  const mode = unit.commission_mode || 'A';
-  if (mode === 'A') return <span className="text-xs text-gray-500">Fixed: <strong className="text-gray-700">{unit.company_commission_pct}%</strong></span>;
-  if (mode === 'B') return <span className="text-xs text-gray-500">Owner: <strong className="text-gray-700">{unit.company_commission_pct}%</strong> · Tenant: <strong className="text-gray-700">{unit.commission_tenant_pct || 0}%</strong></span>;
-  return <span className="text-xs text-gray-500">Via Us: <strong className="text-gray-700">{unit.company_commission_pct}%</strong> · Via Owner: <strong className="text-gray-700">{unit.company_commission_owner_pct || 10}%</strong> · Tenant: <strong className="text-gray-700">{unit.commission_tenant_pct || 0}%</strong></span>;
 }
 
 export default function Units({ listingType = 'rent' }) {
@@ -714,7 +393,6 @@ export default function Units({ listingType = 'rent' }) {
   const openAdd = () => {
     setForm({
       ...EMPTY_FORM,
-      amenities: [],
       photo_urls: [],
     });
     setEditId(null);
@@ -722,28 +400,19 @@ export default function Units({ listingType = 'rent' }) {
   };
   const openEdit = (u) => {
     setEditId(u.id);
+    const bedrooms = u.bedrooms ?? u.beds ?? 1;
     setForm({
       ...EMPTY_FORM,
+      unit_number: u.unit_number || '',
       name: u.name || u.title || '',
       destination: u.destination || u.area || '',
       project: u.project || u.compound || '',
-      unit_number: u.unit_number || '',
       type: normalizePropertyType(u.type || u.property_type || 'Apartment'),
-      bedrooms: u.bedrooms ?? u.beds ?? 1,
+      bedrooms,
       bathrooms: u.bathrooms ?? u.baths ?? 1,
-      floor: u.floor ?? 0,
-      has_nanny_room: !!u.has_nanny_room,
-      disable_automatic_reservations: !!u.disable_automatic_reservations,
-      guests: guestsFromBedrooms(u.bedrooms ?? u.beds ?? 1, !!u.has_nanny_room),
-      owner_name: u.owner_name || '',
-      owner_email: u.owner_email || '',
-      owner_phone: u.owner_phone || '',
-      commission_mode: u.commission_mode || 'A',
-      company_commission_pct: u.company_commission_pct ?? 20,
-      company_commission_owner_pct: u.company_commission_owner_pct ?? 10,
-      commission_tenant_pct: u.commission_tenant_pct ?? 0,
+      guests: u.guests ?? u.capacity ?? guestsFromBedrooms(bedrooms),
+      view: u.view || '',
       description: u.description || u.the_property || '',
-      amenities: toTagList(u.amenities),
       location_link: u.location_link || u.source_url || '',
       photos_folder_url: u.photos_folder_url || '',
       cover_drive_url: u.cover_drive_url || '',
@@ -751,15 +420,14 @@ export default function Units({ listingType = 'rent' }) {
       photo_urls: Array.isArray(u.photo_urls) ? u.photo_urls : [],
       price_per_night: u.price_per_night ?? u.price_fallback ?? '',
       price_monthly: u.price_monthly ?? '',
-      min_nights: u.min_nights ?? '',
-      unit_area: u.unit_area ?? u.size_m2 ?? '',
-      ops_status: u.ops_status || 'available',
-      view: u.view || '',
-      listing_status: u.status || 'published',
     });
     setModal('edit');
   };
   const handleSave = () => {
+    if (!String(form.unit_number || '').trim()) {
+      toast.error('Internal name is required');
+      return;
+    }
     if (!String(form.name || '').trim()) {
       toast.error('Unit name is required');
       return;
@@ -772,8 +440,8 @@ export default function Units({ listingType = 'rent' }) {
       toast.error('Project is required');
       return;
     }
-    if (isLongTerm && !(Number(form.min_nights) >= 1)) {
-      toast.error('Minimum stay (nights) is required for long-term units');
+    if (!(Number(form.guests) >= 1)) {
+      toast.error('Number of guests must be at least 1');
       return;
     }
     const projectName = normalizeProjectName(form.project);
@@ -788,42 +456,25 @@ export default function Units({ listingType = 'rent' }) {
       compound: projectName,
       projectName,
       unit_number: form.unit_number,
-      ops_status: form.ops_status,
       property_type: normalizePropertyType(form.type),
       type: normalizePropertyType(form.type),
       bedrooms: form.bedrooms,
       beds: form.bedrooms,
       bathrooms: form.bathrooms,
       baths: form.bathrooms,
-      floor: form.floor,
       view: form.view,
-      has_nanny_room: !!form.has_nanny_room,
-      disable_automatic_reservations: !!form.disable_automatic_reservations,
-      guests: guestsFromBedrooms(form.bedrooms, form.has_nanny_room),
-      capacity: guestsFromBedrooms(form.bedrooms, form.has_nanny_room),
-      owner_name: form.owner_name,
-      owner_email: form.owner_email,
-      owner_phone: form.owner_phone,
-      commission_mode: form.commission_mode,
-      company_commission_pct: form.company_commission_pct,
-      company_commission_owner_pct: form.company_commission_owner_pct,
-      commission_tenant_pct: form.commission_tenant_pct,
+      guests: Number(form.guests),
+      capacity: Number(form.guests),
       the_property: form.description,
       description: form.description,
-      amenities: form.amenities,
       location_link: form.location_link,
       source_url: form.location_link,
       photos_folder_url: form.photos_folder_url || '',
       cover_drive_url: form.cover_drive_url || '',
       cover_url: form.cover_url || '',
-      unit_area: form.unit_area || null,
-      size_m2: form.unit_area || null,
       price_per_night: isLongTerm ? null : (form.price_per_night === '' ? null : form.price_per_night),
       ...(isLongTerm
-        ? {
-            price_monthly_egp: form.price_monthly === '' ? null : form.price_monthly,
-            min_nights: form.min_nights,
-          }
+        ? { price_monthly_egp: form.price_monthly === '' ? null : form.price_monthly }
         : {}),
     });
   };
@@ -947,7 +598,7 @@ export default function Units({ listingType = 'rent' }) {
               <div className="grid grid-cols-3 gap-3 text-sm text-gray-600 mb-3">
                 <div className="flex items-center gap-1.5"><BedDouble className="w-4 h-4 text-gray-400" />{u.bedrooms ?? u.beds} bed</div>
                 <div className="flex items-center gap-1.5"><Bath className="w-4 h-4 text-gray-400" />{u.bathrooms ?? u.baths} bath</div>
-                <div className="flex items-center gap-1.5"><Layers className="w-4 h-4 text-gray-400" />{parseInt(u.floor) === 0 ? 'Ground' : `Floor ${u.floor}`}</div>
+                <div className="flex items-center gap-1.5"><Users className="w-4 h-4 text-gray-400" />{u.guests ?? u.capacity ?? '—'} guests</div>
               </div>
               {u.view && (
                 <div className="flex items-center gap-1.5 text-xs text-blue-600 font-medium mb-2">
@@ -964,11 +615,7 @@ export default function Units({ listingType = 'rent' }) {
                     : <>{currency(u.price_per_night || u.price_fallback)} / night</>}
                 </div>
               )}
-              {isLongTerm && u.min_nights > 0 && (
-                <p className="text-xs text-gray-500 mb-2">Min stay: {u.min_nights} nights</p>
-              )}
-              <div className="flex items-center justify-between pt-3 border-t border-gray-100 gap-2">
-                <CommissionBadge unit={u} />
+              <div className="flex items-center justify-end pt-3 border-t border-gray-100 gap-2">
                 <div className="flex items-center gap-1 flex-wrap justify-end">
                   {guestListingPath(u) ? (
                     <a
@@ -1032,11 +679,8 @@ export default function Units({ listingType = 'rent' }) {
                   <SortTh col={isLongTerm ? 'price_monthly' : 'price_per_night'} sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
                     {isLongTerm ? 'Price/Month' : 'Price/Night'}
                   </SortTh>
-                  {isLongTerm && (
-                    <SortTh col="min_nights" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Min stay</SortTh>
-                  )}
-                  <SortTh col="owner_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Owner</SortTh>
-                  <th>Commission</th><th>Photos</th>
+                  <SortTh col="guests" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Guests</SortTh>
+                  <th>Photos</th>
                   <SortTh col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Status</SortTh>
                   <th>Actions</th>
                 </tr>
@@ -1054,9 +698,7 @@ export default function Units({ listingType = 'rent' }) {
                         ? (u.price_monthly > 0 ? currency(u.price_monthly) : '—')
                         : ((u.price_per_night || u.price_fallback) > 0 ? currency(u.price_per_night || u.price_fallback) : '—')}
                     </td>
-                    {isLongTerm && <td>{u.min_nights ? `${u.min_nights} nights` : '—'}</td>}
-                    <td>{u.owner_name || '—'}</td>
-                    <td><CommissionBadge unit={u} /></td>
+                    <td>{u.guests ?? u.capacity ?? '—'}</td>
                     <td>
                       {(u.cover_url || u.photo_urls?.[0])
                         ? <a href={u.cover_url || u.photo_urls[0]} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline text-xs flex items-center gap-1"><ExternalLink className="w-3 h-3" />View</a>
@@ -1125,7 +767,7 @@ export default function Units({ listingType = 'rent' }) {
           <button onClick={() => setModal(null)} className="btn-secondary">Cancel</button>
           <button
             onClick={handleSave}
-            disabled={saveMutation.isPending || !form.name || !form.destination || !form.project || (isLongTerm && !form.min_nights)}
+            disabled={saveMutation.isPending || !form.unit_number || !form.name || !form.destination || !form.project}
             className="btn-primary"
           >
             {saveMutation.isPending ? 'Saving...' : modal === 'edit' ? 'Save Changes' : 'Create draft'}

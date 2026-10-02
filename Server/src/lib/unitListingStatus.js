@@ -71,7 +71,7 @@ async function enforceDraftWithoutPrice(unitId) {
   const complete = synced?._completeness?.complete;
   const hasPrice = complete
     ? true
-    : !(synced?._completeness?.missing || []).includes('price (fallback or daily rates)');
+    : !(synced?._completeness?.missing || []).includes('price');
   return {
     demoted: synced && synced.status === 'draft',
     hasPrice: Boolean(hasPrice),

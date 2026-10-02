@@ -250,9 +250,17 @@ function mapUnitRow(u) {
   };
 }
 
+const DEFAULT_LONG_TERM_MIN_NIGHTS = 30;
+
 function parseUnitMinNights(v) {
   const n = Math.floor(Number(v));
   return Number.isFinite(n) && n >= 1 ? Math.min(n, 3650) : null;
+}
+
+function parseGuestCount(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 100) : null;
 }
 
 function truthyNanny(v) {
@@ -1146,7 +1154,8 @@ router.post('/units', requireRoles(...UNIT_EDITOR_ROLES), async (req, res, next)
     const baths = toNum(b.baths ?? b.bathrooms, { int: true, fallback: 1 });
     const hasNannyRoom = truthyNanny(b.has_nanny_room);
     const disableAutomaticReservations = truthyFlag(b.disable_automatic_reservations);
-    const guests = guestsFromBedrooms(beds, hasNannyRoom);
+    const guests =
+      parseGuestCount(b.guests ?? b.capacity) ?? guestsFromBedrooms(beds, hasNannyRoom);
 
     const slug = toText(b.slug) || slugify(title || `unit-${Date.now()}`);
     const amenities = normalizeTagList(b.amenities);
@@ -1176,7 +1185,7 @@ router.post('/units', requireRoles(...UNIT_EDITOR_ROLES), async (req, res, next)
     if (!coverUrl && photoUrls.length) coverUrl = photoUrls[0];
 
     const minNights = isLongTerm
-      ? parseUnitMinNights(b.min_nights)
+      ? parseUnitMinNights(b.min_nights) ?? DEFAULT_LONG_TERM_MIN_NIGHTS
       : await lookupProjectMinNights({
           project: toText(b.project || b.projectName || b.compound, compound),
           compound,
@@ -1335,7 +1344,7 @@ async function updateUnitHandler(req, res, next) {
 
     const { rows: existingRows } = await query(
       `SELECT other_details, price_fallback, wp_post_id, property_type, status,
-              project, compound, area, beds, listing_type, size_m2,
+              project, compound, area, beds, guests, has_nanny_room, listing_type, size_m2,
               cover_url, photo_urls, min_nights
        FROM units WHERE id = $1`,
       [req.params.id]
@@ -1357,9 +1366,9 @@ async function updateUnitHandler(req, res, next) {
     );
     const nextArea = toText(b.area || b.destination) || existingRows[0].area;
     const minNights = isLongTerm
-      ? b.min_nights !== undefined
-        ? parseUnitMinNights(b.min_nights)
-        : existingRows[0].min_nights
+      ? (b.min_nights !== undefined
+          ? parseUnitMinNights(b.min_nights)
+          : existingRows[0].min_nights) ?? DEFAULT_LONG_TERM_MIN_NIGHTS
       : await lookupProjectMinNights({
           project: nextProject,
           compound: nextCompound,
@@ -1482,6 +1491,11 @@ async function updateUnitHandler(req, res, next) {
         toNum(b.beds ?? b.bedrooms, { int: true }),
         toNum(b.baths ?? b.bathrooms, { int: true }),
         (() => {
+          const explicitGuests = parseGuestCount(b.guests ?? b.capacity);
+          if (explicitGuests != null) return explicitGuests;
+          if (b.beds === undefined && b.bedrooms === undefined && b.has_nanny_room === undefined) {
+            return existingRows[0]?.guests ?? null;
+          }
           const bedsNum = toNum(b.beds ?? b.bedrooms, { int: true });
           const nextBeds =
             bedsNum != null ? bedsNum : Number(existingRows[0]?.beds);
