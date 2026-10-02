@@ -36,14 +36,10 @@ export default function OwnerStatementPage() {
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <div className="bg-white border rounded-xl p-4">
           <p className="text-xs text-gray-500">Gross</p>
           <p className="text-lg font-semibold">{currency(data?.totals?.gross)}</p>
-        </div>
-        <div className="bg-white border rounded-xl p-4">
-          <p className="text-xs text-gray-500">Commission</p>
-          <p className="text-lg font-semibold">{currency(data?.totals?.commission)}</p>
         </div>
         <div className="bg-white border rounded-xl p-4">
           <p className="text-xs text-gray-500">Net</p>

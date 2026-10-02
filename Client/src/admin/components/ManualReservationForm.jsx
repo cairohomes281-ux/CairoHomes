@@ -18,11 +18,6 @@ import {
   PAYMENT_METHOD_LABELS,
   unitSelectLabel,
 } from '../utils/formatters';
-import {
-  appliedPctLabel,
-  calcReservationFinancials,
-  commissionModeLabel,
-} from '../utils/commission';
 import { occupancyFromRanges } from '../../utils/stayNights';
 
 const money = (value) =>
@@ -78,7 +73,6 @@ export default function ManualReservationForm({
   onTransferProofChange,
   lockSalesPerson = false,
   currentUserName = '',
-  showCommission = false,
   allowPastDates = false,
   onCancel,
   onSubmit,
@@ -157,14 +151,6 @@ export default function ManualReservationForm({
   const brokerPerNight = Number(form.broker_amount_per_night) || 0;
   const brokerTotal = brokerPerNight * nights;
   const fullBill = Math.round((total + beachAccessFees + insurance) * 100) / 100;
-  const commissionFinancials = selectedUnit
-    ? calcReservationFinancials(selectedUnit, {
-        ...form,
-        nights,
-        broker_total: brokerTotal,
-      })
-    : null;
-
   let toCollect = fullBill - downPayment;
   if (form.owner_collected_type === 'full') toCollect = insurance - downPayment;
   if (form.owner_collected_type === 'partial') toCollect = fullBill - ownerCollected - downPayment;
@@ -488,7 +474,7 @@ export default function ManualReservationForm({
           <hr className="border-[#e6ebf2]" />
 
           <div className="-mb-2 text-[11.5px] font-bold uppercase tracking-wider text-[#5b6b80]">
-            {showCommission ? 'Payment & commission' : 'Payment'}
+            Payment
           </div>
 
           {!form.is_owner_reservation && (
@@ -580,42 +566,6 @@ export default function ManualReservationForm({
                 <> · Net nightly rate after broker: <strong>{money(Math.max(0, Number(form.price_per_night) - brokerPerNight))}</strong></>
               )}
             </p>
-          )}
-
-          {showCommission && selectedUnit && (
-            <div className="rounded-[10px] border border-[#dbe7f8] bg-[#eef4ff] p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-[#0f1c2e]">Company commission</p>
-                  <p className="mt-0.5 text-[12px] text-[#5b6b80]">
-                    {commissionModeLabel(selectedUnit)}
-                  </p>
-                </div>
-                <span className="whitespace-nowrap rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#1e5fbf]">
-                  {appliedPctLabel(commissionFinancials, selectedUnit)}
-                </span>
-              </div>
-              {nights > 0 && (
-                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[12.5px]">
-                  <span className="text-[#5b6b80]">Company commission</span>
-                  <strong className="text-right text-[#0f1c2e]">
-                    {money(commissionFinancials?.companyCommission)}
-                  </strong>
-                  <span className="text-[#5b6b80]">Estimated owner net</span>
-                  <strong className="text-right text-[#0f7d3a]">
-                    {money(commissionFinancials?.ownerNet)}
-                  </strong>
-                  {commissionFinancials?.tenantDeduction > 0 && (
-                    <>
-                      <span className="text-[#5b6b80]">Tenant deduction</span>
-                      <strong className="text-right text-[#0f1c2e]">
-                        {money(commissionFinancials.tenantDeduction)}
-                      </strong>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
           )}
 
           <button

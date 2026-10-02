@@ -12,20 +12,6 @@ import { isOwnerRole as checkOwner } from '../utils/permissions';
 import { FINANCIAL_EPOCH } from '../utils/financialEpoch';
 
 
-function ModeBadge({ mode }) {
-  const cfg = {
-    A: { label: 'Fixed %',  cls: 'bg-blue-100 text-blue-700' },
-    B: { label: 'Split %',  cls: 'bg-purple-100 text-purple-700' },
-    C: { label: 'Advanced', cls: 'bg-amber-100 text-amber-700' },
-  }[String(mode).toUpperCase()] || { label: mode, cls: 'bg-gray-100 text-gray-600' };
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.cls}`}>
-      {cfg.label}
-    </span>
-  );
-}
-
-
 function SummaryRow({ label, value, sub, negative, bold, separator, green, large }) {
   return (
     <div className={`flex justify-between items-center gap-8 py-1.5 text-sm
@@ -123,8 +109,6 @@ export default function OwnerStatement() {
   };
 
   const s    = data?.summary;
-  const mode = s?.commissionMode || 'A';
-  const commissionPct = s?.companyCommissionPct || 0;
 
   
   const allExpenses    = data?.expenses || [];
@@ -252,7 +236,6 @@ export default function OwnerStatement() {
                       <th className="text-center">Nights</th>
                       <th className="text-right">Price / Night</th>
                       <th className="text-right">Subtotal</th>
-                      <th className="text-right">Commission</th>
                       <th className="text-right font-bold">Owner Net</th>
                       <th>Type</th>
                     </tr>
@@ -261,9 +244,7 @@ export default function OwnerStatement() {
                     {data.reservations.map(r => {
                       const pricePerNight = parseFloat(r.intermediate_price_per_night) || 0;
                       const subtotal      = parseFloat(r.subtotal)                     || 0;
-                      const commission    = parseFloat(r.company_commission_amount)    || 0;
                       const ownerNet      = parseFloat(r.adjusted_total)              || 0;
-                      const appliedPct    = parseFloat(r.applied_commission_pct)      || 0;
 
                       return (
                         <tr key={r.id}>
@@ -282,21 +263,6 @@ export default function OwnerStatement() {
                             {currency(subtotal)}
                           </td>
 
-                          
-                          <td className="text-right tabular-nums">
-                            {commission > 0 ? (
-                              <span className="text-red-500">
-                                − {currency(commission)}
-                                {appliedPct > 0 && (
-                                  <span className="text-xs text-gray-400 ml-1">({appliedPct}%)</span>
-                                )}
-                              </span>
-                            ) : (
-                              <span className="text-gray-300">—</span>
-                            )}
-                          </td>
-
-                          
                           <td className="text-right tabular-nums font-bold text-primary-700">
                             {currency(ownerNet)}
                           </td>
@@ -327,17 +293,15 @@ export default function OwnerStatement() {
                 <div className="bg-gray-50 px-5 py-4 space-y-1">
                   <SummaryRow
                     label="Total Revenue"
-                    sub="(after deductions)"
-                    value={currency(s?.totalSubtotal)}
+                    value={currency(s?.totalGross)}
                   />
-                  <SummaryRow
-                    label="Company Commission"
-                    sub={commissionPct > 0 ? `(${commissionPct}%)` : ''}
-                    value={s?.totalCompanyCommission > 0
-                      ? `− ${currency(s.totalCompanyCommission)}`
-                      : currency(0)}
-                    negative={s?.totalCompanyCommission > 0}
-                  />
+                  {s?.totalBrokerDeduction > 0 && (
+                    <SummaryRow
+                      label="Broker Deduction"
+                      value={`− ${currency(s.totalBrokerDeduction)}`}
+                      negative
+                    />
+                  )}
                 </div>
                 <div className="bg-primary-50 px-5 py-3 border-t border-primary-100">
                   <SummaryRow
@@ -434,16 +398,13 @@ export default function OwnerStatement() {
               
               <SummaryRow
                 label="Total Revenue"
-                sub="(after deductions)"
-                value={currency(s?.totalSubtotal)}
+                value={currency(s?.totalGross)}
               />
 
-              
-              {(s?.totalCompanyCommission || 0) > 0 && (
+              {s?.totalBrokerDeduction > 0 && (
                 <SummaryRow
-                  label="Company Commission"
-                  sub={commissionPct > 0 ? `(${commissionPct}%)` : ''}
-                  value={`− ${currency(s.totalCompanyCommission)}`}
+                  label="Broker Deduction"
+                  value={`− ${currency(s.totalBrokerDeduction)}`}
                   negative
                 />
               )}
@@ -495,28 +456,6 @@ export default function OwnerStatement() {
                       <SummaryRow
                         label="Broker Deduction"
                         value={`− ${currency(s.totalBrokerDeduction)}`}
-                        negative
-                      />
-                    )}
-                    {s?.totalTenantDeduction > 0 && (
-                      <SummaryRow
-                        label="Tenant Commission"
-                        sub={s?.tenantCommissionPct > 0 ? `(${s.tenantCommissionPct}%)` : ''}
-                        value={`− ${currency(s.totalTenantDeduction)}`}
-                        negative
-                      />
-                    )}
-                    <SummaryRow
-                      label="Subtotal"
-                      sub="(base for commission)"
-                      value={currency(s?.totalSubtotal)}
-                      separator
-                    />
-                    {s?.totalCompanyCommission > 0 && (
-                      <SummaryRow
-                        label="Company Commission"
-                        sub={s.commissionLabel ? `(${s.commissionLabel})` : ''}
-                        value={`− ${currency(s.totalCompanyCommission)}`}
                         negative
                       />
                     )}

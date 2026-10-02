@@ -76,10 +76,6 @@ async function acceptWebsiteBooking(bookingId, staffUser, options = {}) {
     const unit = units[0];
     if (unit) {
       commissionNote = JSON.stringify({
-        commission_mode: unit.commission_mode,
-        company_commission_pct: unit.company_commission_pct,
-        company_commission_owner_pct: unit.company_commission_owner_pct,
-        commission_tenant_pct: unit.commission_tenant_pct,
         accepted_by: staffUser?.id || null,
         accepted_by_name: staffUser?.full_name || staffUser?.username || null,
         accepted_at: new Date().toISOString(),

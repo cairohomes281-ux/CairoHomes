@@ -155,14 +155,10 @@ export default function OwnerDateBlocks() {
           <p className="text-sm text-amber-800">
             {preview.nights} night(s) · basis: {preview.price_basis}
           </p>
-          <div className="grid grid-cols-3 gap-3 text-sm">
+          <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-xs text-amber-700">Est. gross forgone</p>
               <p className="font-semibold">{currency(preview.estimated_gross)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-amber-700">Est. commission</p>
-              <p className="font-semibold">{currency(preview.estimated_commission)}</p>
             </div>
             <div>
               <p className="text-xs text-amber-700">Est. owner net forgone</p>

@@ -88,10 +88,6 @@ const GUEST_UNIT_OMIT = new Set([
   'owner_name',
   'owner_email',
   'owner_phone',
-  'company_commission_pct',
-  'company_commission_owner_pct',
-  'commission_mode',
-  'commission_tenant_pct',
   'ops_status',
   'created_by_staff',
   'notes',
@@ -106,20 +102,15 @@ const GUEST_UNIT_OMIT = new Set([
 
 function toPublicUnit(row) {
   if (!row) return row;
-  const { applyGuestTenantMarkup } = require('../lib/commission');
   const out = {};
   for (const [k, v] of Object.entries(row)) {
     if (GUEST_UNIT_OMIT.has(k)) continue;
     out[k] = v;
   }
-  
-  if (out.price_fallback != null && Number(out.price_fallback) > 0) {
-    out.price_fallback = applyGuestTenantMarkup(out.price_fallback, row);
-  }
   out.listing_type = normalizeListingType(row.listing_type);
   if (out.listing_type === LONG_TERM) {
     const monthly = Number(row.price_monthly_egp);
-    out.price_monthly = monthly > 0 ? applyGuestTenantMarkup(monthly, row) : null;
+    out.price_monthly = monthly > 0 ? monthly : null;
     out.price_fallback = null;
     out.inquiry_only = true;
   }
@@ -191,10 +182,8 @@ function attachFacilities(row, facilitiesByProject, todayPriceByWp = null, price
   if (!isLongTermUnit(row) && todayPriceByWp && row.wp_post_id != null) {
     const rawToday = todayPriceByWp.get(Number(row.wp_post_id));
     if (rawToday > 0) {
-      const { applyGuestTenantMarkup } = require('../lib/commission');
-      const marked = applyGuestTenantMarkup(rawToday, row);
-      out.price_fallback = marked;
-      out.from_price = marked;
+      out.price_fallback = rawToday;
+      out.from_price = rawToday;
       if (priceAsOf) out.price_as_of = priceAsOf;
     }
   }
@@ -308,7 +297,6 @@ router.get('/', async (req, res, next) => {
              END AS photo_urls,
              u.wp_post_id, u.featured, u.price_currency, u.property_type, u.price_fallback,
              u.size_m2, u.listing_type, u.price_monthly_egp, u.min_nights, u.created_at,
-             u.commission_mode, u.commission_tenant_pct,
              COALESCE(u.average_rating, 0) AS average_rating,
              COALESCE(u.review_count, 0) AS review_count
       FROM units u
@@ -412,15 +400,10 @@ router.get('/:idOrSlug/pricing', async (req, res, next) => {
       [unit.wp_post_id, from, to]
     );
     const map = {};
-    const { applyGuestTenantMarkup } = require('../lib/commission');
     for (const r of rows) {
-      map[r.date] = applyGuestTenantMarkup(r.price, unit);
+      map[r.date] = r.price;
     }
-    const markedRows = rows.map((r) => ({
-      ...r,
-      price: applyGuestTenantMarkup(r.price, unit),
-    }));
-    res.json({ wp_post_id: unit.wp_post_id, prices: map, rows: markedRows });
+    res.json({ wp_post_id: unit.wp_post_id, prices: map, rows });
   } catch (err) {
     next(err);
   }

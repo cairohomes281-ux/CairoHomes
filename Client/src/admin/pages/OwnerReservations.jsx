@@ -32,7 +32,6 @@ export default function OwnerReservations() {
                   <th className="px-4 py-3 text-left">Unit</th>
                   <th className="px-4 py-3 text-left">Dates</th>
                   <th className="px-4 py-3 text-right">Gross</th>
-                  <th className="px-4 py-3 text-right">Commission</th>
                   <th className="px-4 py-3 text-right">Net</th>
                   <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-left">Payment</th>
@@ -41,7 +40,6 @@ export default function OwnerReservations() {
               <tbody className="divide-y divide-gray-100">
                 {data.map((r) => {
                   const showMoney = r.show_money !== false && r.status !== 'rejected';
-                  const pct = r.commission_pct != null ? Number(r.commission_pct) : 20;
                   return (
                     <tr key={r.id || r.booking_ref}>
                       <td className="px-4 py-3 font-medium text-gray-900">
@@ -52,16 +50,6 @@ export default function OwnerReservations() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         {showMoney ? currency(r.gross) : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {showMoney ? (
-                          <span>
-                            {currency(r.commission)}
-                            <span className="ml-1 text-xs text-gray-400">({pct}%)</span>
-                          </span>
-                        ) : (
-                          '—'
-                        )}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold">
                         {showMoney ? currency(r.net) : '—'}

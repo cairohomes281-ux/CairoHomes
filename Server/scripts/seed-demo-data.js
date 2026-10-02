@@ -461,14 +461,14 @@ async function seedUnits(adminId, ownerIds) {
          short_description, the_property, neighborhood, getting_around, amenities,
          price_fallback, price_monthly_egp, security_deposit_egp,
          featured, min_nights, listing_type, unit_number, internal_code, owner_name, owner_email, owner_phone,
-         source_url, location_link, ops_status, created_by_staff, company_commission_pct
+         source_url, location_link, ops_status, created_by_staff
        ) VALUES (
          $1,$2,$3,'manual',$4,$5,$5,$6,'Cairo',$7,$8,
          $9,$10,$11,$12,$13,$14,$15,$16,$17,
          $18,$19,$20,$21,$22,
          $23,$24,$25,
          $26,$27,$28,$29,$29,$30,$31,$32,
-         $33,$33,'available',$34,20
+         $33,$33,'available',$34
        ) RETURNING id, wp_post_id, slug, title, compound, area, price_fallback, guests, min_nights, listing_type`,
       [
         u.slug, u.title, u.draft ? 'draft' : 'published', DEMO_TAG, u.compound, u.area, u.lat, u.lng,

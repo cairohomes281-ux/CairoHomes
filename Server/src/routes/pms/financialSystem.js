@@ -148,9 +148,7 @@ async function computeOwnerPeriodBalance(ownerId, from, to) {
   const { rows: resRows } = await query(
     `SELECT r.nights, r.price_per_night, r.total_amount,
             r.broker_total, r.broker_amount_per_night,
-            r.insurance, r.beach_access_fees, r.is_owner_reservation, r.status,
-            u.commission_mode, u.company_commission_pct,
-            u.company_commission_owner_pct, u.commission_tenant_pct
+            r.insurance, r.beach_access_fees, r.is_owner_reservation, r.status
      FROM reservations r
      JOIN units u ON u.id = r.unit_id
      WHERE ${resSql}`,
@@ -233,9 +231,7 @@ async function loadOwnerStatementData(from, to, unitId = null) {
             r.insurance, r.beach_access_fees,
             r.is_owner_reservation, r.status,
             COALESCE(u.unit_number, u.title, 'Unit') AS unit_name,
-            COALESCE(u.project, u.compound) AS project,
-            u.commission_mode, u.company_commission_pct,
-            u.company_commission_owner_pct, u.commission_tenant_pct
+            COALESCE(u.project, u.compound) AS project
      FROM reservations r
      JOIN units u ON u.id = r.unit_id
      WHERE ${resWhere}`,
@@ -438,8 +434,6 @@ async function loadReservations(req) {
     `SELECT r.*,
             COALESCE(u.unit_number, u.title, 'Unit') AS unit_name,
             COALESCE(u.project, u.compound) AS project,
-            u.commission_mode, u.company_commission_pct,
-            u.company_commission_owner_pct, u.commission_tenant_pct,
             COALESCE(sp.full_name, '—') AS sales_person_name,
             COALESCE(sp.sales_commission_pct, 0) AS agent_commission_pct
      FROM reservations r

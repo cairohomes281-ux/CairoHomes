@@ -20,7 +20,7 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import SortTh from '../components/ui/SortTh';
 import BookingCalendar from '../components/ui/BookingCalendar';
 import { currency, formatDate, formatDateTime, nightsText, BOOKING_SOURCES, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, MANUAL_PAYMENT_METHODS, unitDisplay, unitSelectLabel } from '../utils/formatters';
-import { calcReservationFinancials, commissionModeLabel, appliedPctLabel } from '../utils/commission';
+import { calcReservationFinancials } from '../utils/commission';
 import { isoDateOnly } from '../../utils/stayNights';
 import { canonicalSalesName, namesAreAliases, reservationSalesDisplay } from '../utils/salesNameMatch';
 import AdminReservationDrawer from '../components/AdminReservationDrawer';
@@ -509,7 +509,7 @@ function ReservationDetail({
   onRemoveIdDoc,
   uploadingDocs,
   onPreviewDocs,
-  showCommission = false,
+  showOwnerNet = false,
   ownerExperienceView = false,
 }) {
   if (!reservation) return null;
@@ -589,16 +589,7 @@ function ReservationDetail({
     );
   }
 
-  
-  const fin = calcReservationFinancials(
-    {
-      commission_mode:             reservation.commission_mode,
-      company_commission_pct:      reservation.company_commission_pct,
-      company_commission_owner_pct: reservation.company_commission_owner_pct,
-      commission_tenant_pct:       reservation.commission_tenant_pct,
-    },
-    reservation
-  );
+  const fin = calcReservationFinancials(reservation);
 
   return (
     <div className="space-y-5">
@@ -696,31 +687,19 @@ function ReservationDetail({
         {reservation.insurance > 0 && (
           <div className="flex justify-between"><span className="text-gray-500">Insurance</span><span>{currency(reservation.insurance)}</span></div>
         )}
-        {showCommission && fin.tenantDeduction > 0 && (
-          <div className="flex justify-between">
-            <span className="text-gray-500">Tenant Commission</span>
-            <span className="text-orange-600">− {currency(fin.tenantDeduction)}</span>
-          </div>
-        )}
         {fin.brokerDeduction > 0 && (
           <div className="flex justify-between">
             <span className="text-gray-500">Broker{reservation.broker_name ? ` (${reservation.broker_name})` : ''}</span>
             <span className="text-purple-600">− {currency(fin.brokerDeduction)}</span>
           </div>
         )}
-        {showCommission && fin.companyCommission > 0 && (
-          <div className="flex justify-between">
-            <span className="text-gray-500">Company Commission <span className="text-xs text-gray-400">({appliedPctLabel(fin, reservation)})</span></span>
-            <span className="text-red-600">− {currency(fin.companyCommission)}</span>
-          </div>
-        )}
-        {showCommission && (
+        {showOwnerNet && (
           <div className="flex justify-between border-t border-gray-200 pt-1.5">
             <span className="text-gray-500 font-medium">Owner Net</span>
             <span className="font-semibold text-primary-700">{currency(fin.ownerNet)}</span>
           </div>
         )}
-        <div className={`flex justify-between ${showCommission ? '' : 'border-t border-gray-200 pt-1.5'}`}>
+        <div className={`flex justify-between ${showOwnerNet ? '' : 'border-t border-gray-200 pt-1.5'}`}>
           <span className="text-gray-500">Amount Paid</span>
           <span className="font-semibold text-green-600">{currency(reservation.amount_paid)}</span>
         </div>
@@ -882,16 +861,8 @@ function calcNetPricePerNight(r) {
   const gross      = parseFloat(r.total_amount)    || 0;
   const broker     = parseFloat(r.broker_total)     || 0;
   const nights     = Math.max(parseInt(r.nights) || 1, 1);
-  const mode       = String(r.commission_mode || 'A').toUpperCase();
-  const tenantPct  = parseFloat(r.commission_tenant_pct) || 0;
-  const isOwner    = Boolean(parseInt(r.is_owner_reservation) || r.is_owner_reservation === true);
-
   const netBase = gross - broker;
-  const tenantDeduction = (mode === 'C' && tenantPct > 0 && !isOwner)
-    ? Math.round((netBase * tenantPct / 100) * 100) / 100
-    : 0;
-  const subtotal = netBase - tenantDeduction;
-  return nights > 0 ? Math.round((subtotal / nights) * 100) / 100 : 0;
+  return nights > 0 ? Math.round((netBase / nights) * 100) / 100 : 0;
 }
 
 function DateRangeFilter({ label, from, to, onFromChange, onToChange, onClear }) {
@@ -1949,7 +1920,6 @@ export default function Reservations() {
           onTransferProofChange={setTransferProof}
           lockSalesPerson={!isAdmin}
           currentUserName={user?.full_name || user?.username || ''}
-          showCommission={isAdmin}
           allowPastDates={isAdmin}
           onCancel={() => { setModal(null); setTransferProof(null); }}
           onSubmit={handleSave}
@@ -2011,7 +1981,7 @@ export default function Reservations() {
           canApprove={canApprove}
           onApprovePayment={(pmtId) => approveMutation.mutate(pmtId)}
           canWrite={canWrite}
-          showCommission={isAdmin}
+          showOwnerNet={isAdmin}
           ownerExperienceView={isOwnersRelations}
           uploadingDocs={uploadIdDocsMutation.isPending}
           onUploadIdDocs={(files) => uploadIdDocsMutation.mutate(files)}

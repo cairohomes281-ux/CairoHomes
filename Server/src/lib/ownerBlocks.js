@@ -110,7 +110,6 @@ async function previewOwnerBlockImpact(unitId, fromDate, toDate) {
     conflicts,
     has_conflicts: conflicts.length > 0,
     estimated_gross: round2(gross),
-    estimated_commission: fin.companyCommission,
     estimated_owner_net_forgone: fin.ownerNet,
     price_basis: priceBasis,
     priced_nights: pricedNights,

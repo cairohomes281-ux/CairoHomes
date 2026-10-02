@@ -2612,7 +2612,6 @@ export default function Schedule() {
           onTransferProofChange={setCreateProof}
           lockSalesPerson={!isAdmin}
           currentUserName={user?.full_name || user?.username || ''}
-          showCommission={isAdmin}
           allowPastDates={isAdmin}
           onCancel={() => { setCreateDrawer(false); setCreateProof(null); }}
           onSubmit={handleCreateReservation}

@@ -34,7 +34,6 @@ const LIST_SELECT = `
   END AS photo_urls,
   u.wp_post_id, u.featured, u.price_currency, u.property_type, u.price_fallback,
   u.size_m2, u.listing_type, u.created_at, u.short_description, u.amenities,
-  u.commission_mode, u.commission_tenant_pct,
   COALESCE(u.average_rating, 0) AS average_rating,
   COALESCE(u.review_count, 0) AS review_count
 `;

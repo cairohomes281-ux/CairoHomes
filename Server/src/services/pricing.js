@@ -154,11 +154,8 @@ async function quoteStay({
     }
   }
 
-  let baseSubtotal = 0;
   let subtotal = 0;
   const perNight = [];
-  const { applyGuestTenantMarkup, guestTenantMarkupPct } = require('../lib/commission');
-  const tenantMarkupPct = guestTenantMarkupPct(unit);
 
   for (const dateStr of eachNight(checkinIso, checkoutIso)) {
     const row = await priceForNight(wpPostId, dateStr);
@@ -169,12 +166,10 @@ async function quoteStay({
     if (!(basePrice > 0)) {
       return { available: false, reason: `No price for ${dateStr}`, nights };
     }
-    const guestPrice = applyGuestTenantMarkup(basePrice, unit);
-    baseSubtotal += basePrice;
-    subtotal += guestPrice;
+    subtotal += basePrice;
     perNight.push({
       date: dateStr,
-      price: guestPrice,
+      price: basePrice,
       base_price: basePrice,
       currency: row.currency,
     });
@@ -188,8 +183,7 @@ async function quoteStay({
     nights,
     perNight,
     subtotal,
-    base_subtotal: roundMoney(baseSubtotal),
-    tenant_markup_pct: tenantMarkupPct,
+    base_subtotal: roundMoney(subtotal),
     ...fees,
     total_egp: total,
     currency: unit?.price_currency || 'EGP',

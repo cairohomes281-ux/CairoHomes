@@ -230,10 +230,6 @@ router.get(
          r.booking_id, r.booking_source, r.sales_person_id,
          COALESCE(u.unit_number, u.title, 'Unit') AS unit_name,
          COALESCE(u.project, u.compound, 'Unassigned') AS project,
-         u.commission_mode,
-         u.company_commission_pct,
-         u.company_commission_owner_pct,
-         u.commission_tenant_pct,
          COALESCE(sp.sales_commission_pct, 0) AS agent_commission_pct,
          sp.full_name AS sales_person_name
        FROM reservations r
@@ -302,8 +298,6 @@ router.get(
         tenant_deduction: fin.tenantDeduction,
         company_commission: fin.companyCommission,
         owner_net: fin.ownerNet,
-        applied_pct: fin.appliedCommissionPct,
-        mode: fin.mode,
       };
     });
 
@@ -467,8 +461,6 @@ router.get('/finance/summary', requireRoles('admin'), async (req, res, next) => 
          r.is_owner_reservation,
          r.broker_total, r.broker_amount_per_night,
          r.booking_id, r.booking_source, r.sales_person_id,
-         u.commission_mode, u.company_commission_pct,
-         u.company_commission_owner_pct, u.commission_tenant_pct,
          COALESCE(sp.sales_commission_pct, 0) AS agent_commission_pct
        FROM reservations r
        JOIN units u ON u.id = r.unit_id

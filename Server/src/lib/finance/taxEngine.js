@@ -64,7 +64,6 @@ function bookingSplit(fin, reservation) {
     gross_booking: round2(gross),
     accommodation: round2(gross),
     company_commission: round2(commission),
-    company_commission_pct: fin.appliedCommissionPct || 0,
     vat_on_commission: vat.vat_amount,
     vat_pct: VAT_OUTPUT_PCT,
     commission_vat: vat.commission_vat,

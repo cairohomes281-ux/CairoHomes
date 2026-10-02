@@ -733,8 +733,6 @@ async function loadPortalData(from, to) {
             to_char(r.check_out, 'YYYY-MM-DD') AS check_out,
             COALESCE(u.unit_number, u.title, 'Unit') AS unit_name,
             COALESCE(u.project, u.compound) AS project,
-            u.commission_mode, u.company_commission_pct,
-            u.company_commission_owner_pct, u.commission_tenant_pct,
             COALESCE(sp.full_name, '—') AS sales_person_name,
             COALESCE(sp.sales_commission_pct, 0) AS agent_commission_pct
      FROM reservations r

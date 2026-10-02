@@ -15,8 +15,7 @@ async function generateOwnerSettlement({ ownerId, periodStart, periodEnd }) {
   }
 
   const { rows: reservations } = await query(
-    `SELECT r.*, u.company_commission_pct, u.company_commission_owner_pct,
-            u.commission_mode, u.commission_tenant_pct, u.id AS unit_row_id
+    `SELECT r.*, u.id AS unit_row_id
      FROM reservations r
      JOIN units u ON u.id = r.unit_id
      WHERE r.unit_id = ANY($1::uuid[])

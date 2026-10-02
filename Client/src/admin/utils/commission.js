@@ -11,33 +11,20 @@ function rentalBase(reservation) {
   return round2(parseFloat(reservation.total_amount) || 0);
 }
 
+function isOwnerReservation(reservation) {
+  return Boolean(
+    parseInt(reservation.is_owner_reservation, 10) || reservation.is_owner_reservation === true
+  );
+}
 
-export function calcReservationFinancials(unit, reservation) {
-  if (!unit || !reservation) return nullFinancials();
+export function calcReservationFinancials(reservation) {
+  if (!reservation) return nullFinancials();
 
   if (String(reservation.status || '').toLowerCase() === 'cancelled') {
-    return {
-      ...nullFinancials(),
-      mode: String(unit.commission_mode || 'A').toUpperCase(),
-      isOwner: Boolean(
-        parseInt(reservation.is_owner_reservation, 10) ||
-          reservation.is_owner_reservation === true
-      ),
-      cancelled: true,
-    };
+    return { ...nullFinancials(), isOwner: isOwnerReservation(reservation), cancelled: true };
   }
 
-  const mode = String(unit.commission_mode || 'A').toUpperCase();
   const nights = Math.max(parseInt(reservation.nights, 10) || 1, 1);
-  const isOwner = Boolean(
-    parseInt(reservation.is_owner_reservation, 10) ||
-      reservation.is_owner_reservation === true
-  );
-
-  const companyPct = parseFloat(unit.company_commission_pct) || 0;
-  const ownerResPct = parseFloat(unit.company_commission_owner_pct) || 0;
-  const tenantPct = parseFloat(unit.commission_tenant_pct) || 0;
-
   const base = rentalBase(reservation);
   let brokerDeduction = parseFloat(reservation.broker_total) || 0;
   if (!(brokerDeduction > 0)) {
@@ -45,76 +32,25 @@ export function calcReservationFinancials(unit, reservation) {
     if (brokerNight > 0) brokerDeduction = round2(brokerNight * nights);
   }
 
-  let appliedCommissionPct = 0;
-  if (mode === 'C' && isOwner) {
-    appliedCommissionPct = ownerResPct;
-  } else {
-    appliedCommissionPct = companyPct;
-  }
-
-  const afterBroker = round2(Math.max(0, base - brokerDeduction));
-
-  let tenantDeduction = 0;
-  if ((mode === 'B' || mode === 'C') && tenantPct > 0 && !isOwner) {
-    tenantDeduction = round2((afterBroker * tenantPct) / 100);
-  }
-
-  const companyCommission =
-    appliedCommissionPct > 0
-      ? round2(((afterBroker - tenantDeduction) * appliedCommissionPct) / 100)
-      : 0;
-
-  const subtotal = round2(afterBroker - tenantDeduction);
-  const ownerNet = round2(subtotal - companyCommission);
-  const intermediatePricePerNight = nights > 0 ? round2(subtotal / nights) : 0;
-  const adjustedPricePerNight = nights > 0 ? round2(ownerNet / nights) : 0;
+  const ownerNet = round2(Math.max(0, base - brokerDeduction));
 
   return {
-    mode,
     grossAmount: base,
     rentalBase: base,
     brokerDeduction,
-    tenantDeduction,
-    subtotal,
-    intermediatePricePerNight,
-    companyCommission,
     ownerNet,
-    adjustedPricePerNight,
-    appliedCommissionPct,
-    isOwner,
+    adjustedPricePerNight: nights > 0 ? round2(ownerNet / nights) : 0,
+    isOwner: isOwnerReservation(reservation),
   };
 }
 
 function nullFinancials() {
   return {
-    mode: 'A',
     grossAmount: 0,
     rentalBase: 0,
     brokerDeduction: 0,
-    tenantDeduction: 0,
-    subtotal: 0,
-    intermediatePricePerNight: 0,
-    companyCommission: 0,
     ownerNet: 0,
     adjustedPricePerNight: 0,
-    appliedCommissionPct: 0,
     isOwner: false,
   };
-}
-
-export function commissionModeLabel(unit) {
-  if (!unit) return '—';
-  const mode = String(unit.commission_mode || 'A').toUpperCase();
-  if (mode === 'A') return `Fixed ${unit.company_commission_pct ?? 0}% of nightly rate`;
-  if (mode === 'B') {
-    return `Owner ${unit.company_commission_pct ?? 0}% + Tenant ${unit.commission_tenant_pct ?? 0}% of nightly rate`;
-  }
-  return `Via Us ${unit.company_commission_pct ?? 0}% / Via Owner ${unit.company_commission_owner_pct ?? 0}% + Tenant ${unit.commission_tenant_pct ?? 0}% (nightly rate only)`;
-}
-
-export function appliedPctLabel(fin, unit) {
-  if (!fin || !unit) return '—';
-  if (fin.mode === 'C' && fin.isOwner) return `Via Owner ${unit.company_commission_owner_pct ?? 0}%`;
-  if (fin.appliedCommissionPct > 0) return `${fin.appliedCommissionPct}%`;
-  return 'None';
 }
