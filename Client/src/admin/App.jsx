@@ -22,7 +22,6 @@ const Attendance = lazy(() => import('./pages/Attendance'));
 const Payslip = lazy(() => import('./pages/Payslip'));
 const Profile = lazy(() => import('./pages/Profile'));
 const CalendarSync = lazy(() => import('./pages/CalendarSync'));
-const OtaInbox = lazy(() => import('./pages/OtaInbox'));
 const Schedule = lazy(() => import('./pages/Schedule'));
 const Operations = lazy(() => import('./pages/Operations'));
 const Projects = lazy(() => import('./pages/Projects'));
@@ -114,7 +113,7 @@ function AppRoutes() {
       <Route path="website-bookings/history" element={<Navigate to="/admin/reservations?tab=history" replace />} />
       <Route path="schedule" element={<ProtectedRoute page="schedule"><Schedule /></ProtectedRoute>} />
       <Route path="calendar-sync" element={<ProtectedRoute page="calendar_sync"><CalendarSync /></ProtectedRoute>} />
-      <Route path="ota-inbox" element={<ProtectedRoute page="calendar_sync"><OtaInbox /></ProtectedRoute>} />
+      <Route path="ota-inbox" element={<Navigate to="/admin/calendar-sync" replace />} />
       <Route path="performance" element={<ProtectedRoute page="performance"><Performance /></ProtectedRoute>} />
       <Route path="tasks" element={<ProtectedRoute page="tasks"><Tasks /></ProtectedRoute>} />
 

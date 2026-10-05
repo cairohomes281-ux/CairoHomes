@@ -792,7 +792,7 @@ export const PAGE_CATALOG = [
   { page: 'reservations', label: 'Reservations', group: 'Bookings', path: '/admin/reservations' },
   { page: 'website_bookings', label: 'Website requests & history', group: 'Bookings', path: '/admin/reservations?tab=requests' },
   { page: 'schedule', label: 'Schedule', group: 'Bookings', path: '/admin/schedule' },
-  { page: 'calendar_sync', label: 'Channel Manager & OTA Inbox', group: 'Bookings', path: '/admin/calendar-sync' },
+  { page: 'calendar_sync', label: 'Calendar Sync', group: 'Bookings', path: '/admin/calendar-sync' },
   { page: 'performance', label: 'Performance', group: 'Bookings', path: '/admin/performance' },
   { page: 'reservation_audit', label: 'Reservation Audit', group: 'Bookings', path: '/admin/reservation-audit' },
   { page: 'operations', label: 'Operations', group: 'Operations', path: '/admin/operations' },
