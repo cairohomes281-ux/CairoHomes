@@ -14,7 +14,7 @@ export const brand = {
   },
   whatsapp: import.meta.env.VITE_WHATSAPP_NUMBER || '+201080080418',
   phoneDisplay: import.meta.env.VITE_PHONE_DISPLAY || '+20 10 80080418',
-  email: import.meta.env.VITE_CONTACT_EMAIL || 'info@cairohomes.com',
+  email: import.meta.env.VITE_CONTACT_EMAIL || 'info@cairohomes-eg.com',
   address: import.meta.env.VITE_ADDRESS || 'Zamalek, Cairo, Egypt',
   mapsUrl: import.meta.env.VITE_MAPS_URL || 'https://maps.google.com/?q=Zamalek,Cairo',
   social: {

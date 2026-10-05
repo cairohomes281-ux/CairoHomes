@@ -4,7 +4,7 @@ const { bookingReference } = require('./guestEmails');
 const { sendWhatsAppTemplate, whatsappConfigured, toWhatsAppRecipient } = require('./whatsapp');
 
 function siteBaseUrl() {
-  return String(process.env.FRONTEND_URL || 'https://cairohomes.com').replace(/\/$/, '');
+  return String(process.env.FRONTEND_URL || 'https://cairohomes-eg.com').replace(/\/$/, '');
 }
 
 function formatStayDate(value) {

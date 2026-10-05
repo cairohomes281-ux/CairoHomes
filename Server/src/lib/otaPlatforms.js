@@ -32,7 +32,7 @@ function isIcalOccupancySource(source) {
 }
 
 function calendarExportUrl(slug) {
-  const base = String(process.env.FRONTEND_URL || 'https://cairohomes.com').replace(/\/$/, '');
+  const base = String(process.env.FRONTEND_URL || 'https://cairohomes-eg.com').replace(/\/$/, '');
   return `${base}/api/calendar/${slug}.ics`;
 }
 

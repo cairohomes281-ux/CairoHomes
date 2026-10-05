@@ -81,7 +81,7 @@ router.post('/', optionalGuest, async (req, res, next) => {
     );
 
     const inquiry = rows[0];
-    const to = process.env.INQUIRY_TO_EMAIL;
+    const to = process.env.INQUIRY_TO_EMAIL || 'info@cairohomes-eg.com';
     if (to) {
       await sendEmail({
         to,

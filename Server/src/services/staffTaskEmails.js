@@ -28,7 +28,7 @@ function staffEmailFromUser(user) {
 }
 
 function tasksPageUrl() {
-  const base = String(process.env.ADMIN_URL || process.env.FRONTEND_URL || 'https://cairohomes.com/admin').replace(
+  const base = String(process.env.ADMIN_URL || process.env.FRONTEND_URL || 'https://cairohomes-eg.com/admin').replace(
     /\/$/,
     ''
   );
