@@ -365,6 +365,35 @@ function parseRolePages(raw) {
   return pages;
 }
 
+const BUILT_IN_ROLES = [
+  'admin',
+  'reservations_web',
+  'reservations_manual',
+  'reservations',
+  'reservations_manager',
+  'operations',
+  'operations_supervisor',
+  'resale',
+  'resale_manager',
+  'unit_acquisition_agent',
+  'unit_acquisition_manager',
+  'finance',
+  'finance_manager',
+  'hr',
+  'hr_supervisor',
+  'owners_relations',
+  'owner',
+  'marketing_pr',
+  'web_developer',
+];
+
+const UNDELETABLE_ROLES = new Set(['admin', 'owner']);
+
+async function assertRoleEnabled(role) {
+  const { rows } = await query(`SELECT 1 FROM staff_disabled_roles WHERE role = $1`, [role]);
+  if (rows[0]) throw httpError(400, 'This role has been deleted. Restore it from the Roles tab first.');
+}
+
 function assertCanAssignRole(actorRole, targetRole) {
   if (isUnitAcquisitionRole(actorRole)) {
     if (targetRole !== 'owner') {
@@ -389,28 +418,7 @@ function assertCanAssignRole(actorRole, targetRole) {
     err.status = 403;
     throw err;
   }
-  const allowed = [
-    'admin',
-    'reservations_web',
-    'reservations_manual',
-    'reservations',
-    'reservations_manager',
-    'operations',
-    'operations_supervisor',
-    'resale',
-    'resale_manager',
-    'unit_acquisition_agent',
-    'unit_acquisition_manager',
-    'finance',
-    'finance_manager',
-    'hr',
-    'hr_supervisor',
-    'owners_relations',
-    'owner',
-    'marketing_pr',
-    'web_developer',
-  ];
-  if (!allowed.includes(targetRole)) {
+  if (!BUILT_IN_ROLES.includes(targetRole)) {
     const err = new Error(
       'Invalid role. Use admin, reservations_web, reservations_manual, reservations_manager, unit_acquisition_agent, unit_acquisition_manager, operations, operations_supervisor, resale, resale_manager, finance, finance_manager, hr, hr_supervisor, owners_relations, marketing_pr, web_developer, or owner.'
     );
@@ -525,6 +533,7 @@ function staffRoleError(e, res, next) {
 router.post('/staff-roles', requireRoles(...HR_ROUTE_ROLES), async (req, res, next) => {
   try {
     const { name, baseRole, description, pages } = parseStaffRoleBody(req.body || {}, req.user.role);
+    await assertRoleEnabled(baseRole);
     const { rows } = await query(
       `INSERT INTO staff_roles (name, description, base_role, pages, created_by)
        VALUES ($1, $2, $3, $4, $5)
@@ -548,6 +557,7 @@ router.patch('/staff-roles/:id', requireRoles(...HR_ROUTE_ROLES), async (req, re
     if (!existing) throw httpError(404, 'Not found');
     assertCanAssignRole(req.user.role, existing.base_role);
     const { name, baseRole, description, pages } = parseStaffRoleBody(req.body || {}, req.user.role);
+    if (baseRole !== existing.base_role) await assertRoleEnabled(baseRole);
 
     await client.query('BEGIN');
     await client.query(
@@ -589,6 +599,65 @@ router.delete('/staff-roles/:id', requireRoles(...HR_ROUTE_ROLES), async (req, r
     assertCanAssignRole(req.user.role, existing.base_role);
     // staff_users.custom_role_id is ON DELETE SET NULL: assigned staff keep the base role.
     await query(`DELETE FROM staff_roles WHERE id = $1`, [existing.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    staffRoleError(e, res, next);
+  }
+});
+
+router.get('/staff-roles/disabled', requireRoles(...USER_ACCOUNT_ROLES), async (_req, res, next) => {
+  try {
+    const { rows } = await query(`SELECT role FROM staff_disabled_roles ORDER BY role`);
+    res.json(rows.map((r) => r.role));
+  } catch (e) {
+    next(e);
+  }
+});
+
+function parseBuiltInRole(raw) {
+  const role = String(raw || '').trim();
+  if (!BUILT_IN_ROLES.includes(role)) throw httpError(404, 'Unknown role');
+  if (UNDELETABLE_ROLES.has(role)) throw httpError(400, 'The CEO and Owner roles cannot be deleted');
+  return role;
+}
+
+router.delete('/staff-roles/built-in/:role', requireRoles('admin'), async (req, res, next) => {
+  try {
+    const role = parseBuiltInRole(req.params.role);
+    const { rows } = await query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM staff_users WHERE role = $1) AS user_count,
+         (SELECT COALESCE(array_agg(name ORDER BY lower(name)), '{}') FROM staff_roles WHERE base_role = $1) AS custom_roles`,
+      [role]
+    );
+    const { user_count: userCount, custom_roles: customRoles } = rows[0];
+    if (userCount > 0) {
+      throw httpError(
+        409,
+        `${userCount} staff member${userCount === 1 ? ' still has' : 's still have'} this role. Move them to another role first.`
+      );
+    }
+    if (customRoles.length) {
+      throw httpError(
+        409,
+        `Custom role${customRoles.length === 1 ? '' : 's'} ${customRoles.map((n) => `“${n}”`).join(', ')} ${customRoles.length === 1 ? 'works' : 'work'} like this role. Delete or change ${customRoles.length === 1 ? 'it' : 'them'} first.`
+      );
+    }
+    await query(
+      `INSERT INTO staff_disabled_roles (role, disabled_by) VALUES ($1, $2)
+       ON CONFLICT (role) DO NOTHING`,
+      [role, req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    staffRoleError(e, res, next);
+  }
+});
+
+router.post('/staff-roles/built-in/:role/restore', requireRoles('admin'), async (req, res, next) => {
+  try {
+    const role = parseBuiltInRole(req.params.role);
+    await query(`DELETE FROM staff_disabled_roles WHERE role = $1`, [role]);
     res.json({ ok: true });
   } catch (e) {
     staffRoleError(e, res, next);
@@ -639,6 +708,7 @@ router.post('/users', requireRoles(...USER_ACCOUNT_ROLES), async (req, res, next
       return res.status(400).json({ error: 'Fixed base salary is required' });
     }
     assertCanAssignRole(req.user.role, role);
+    await assertRoleEnabled(role);
     let agentCommissionPct;
     try {
       agentCommissionPct = parseAgentCommissionPct(b, role);
@@ -762,6 +832,7 @@ router.patch('/users/:id', requireRoles(...USER_ACCOUNT_ROLES), async (req, res,
     // HR must be able to edit Staff ID and other fields on existing managers without re-assigning the role.
     if (nextRole !== existing.role) {
       assertCanAssignRole(req.user.role, nextRole);
+      await assertRoleEnabled(nextRole);
     }
 
     const salaryChanged =

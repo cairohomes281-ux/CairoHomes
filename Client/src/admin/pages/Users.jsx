@@ -749,13 +749,21 @@ function OwnerDetailsView({ owner, units, loading }) {
 export default function Users() {
   const qc = useQueryClient();
   const { isAdmin, isHr, isHrSupervisor, isUnitAcquisition, role, user } = usePermissions();
-  const staffRoleOptions = creatableRoles(role).filter((r) => r !== 'owner');
   const canCreateOwners = isAdmin || isUnitAcquisition;
   const canLinkUnits = isAdmin || isUnitAcquisition;
   const canSeeStaffTab = isAdmin || isHr;
   const canSeeOwnersTab = isAdmin || isUnitAcquisition;
 
   const canSeeRolesTab = canSeeStaffTab;
+  const { data: disabledRoles = [] } = useQuery({
+    queryKey: ['staff-roles-disabled'],
+    queryFn: () => api.get('/staff-roles/disabled').then((r) => r.data),
+    enabled: canSeeRolesTab,
+  });
+  const disabledRoleSet = new Set(disabledRoles);
+  const staffRoleOptions = creatableRoles(role).filter(
+    (r) => r !== 'owner' && !disabledRoleSet.has(r)
+  );
   const visibleTabs = TABS.filter((t) =>
     t.id === 'owners' ? canSeeOwnersTab : t.id === 'roles' ? canSeeRolesTab : canSeeStaffTab
   );
@@ -825,6 +833,20 @@ export default function Users() {
       setDeleteRole(null);
     },
     onError: (e) => toast.error(e.response?.data?.error || 'Error deleting role'),
+  });
+
+  const [deleteBuiltInRole, setDeleteBuiltInRole] = useState(null);
+  const builtInRoleMutation = useMutation({
+    mutationFn: ({ role: r, restore }) =>
+      restore
+        ? api.post(`/staff-roles/built-in/${r}/restore`)
+        : api.delete(`/staff-roles/built-in/${r}`),
+    onSuccess: (_d, { role: r, restore }) => {
+      qc.invalidateQueries({ queryKey: ['staff-roles-disabled'] });
+      toast.success(`${ROLE_LABELS[r] || r} ${restore ? 'restored' : 'deleted'}`);
+      setDeleteBuiltInRole(null);
+    },
+    onError: (e) => toast.error(e.response?.data?.error || 'Error updating role'),
   });
 
   const openAddRole = () => {
@@ -1197,7 +1219,9 @@ export default function Users() {
     });
   };
 
-  const filterRoleOptions = isAdmin ? ADMIN_STAFF_FILTER_ROLES : HR_STAFF_FILTER_ROLES;
+  const filterRoleOptions = (isAdmin ? ADMIN_STAFF_FILTER_ROLES : HR_STAFF_FILTER_ROLES).filter(
+    (r) => !disabledRoleSet.has(r)
+  );
 
   const showAddButton = isOwnersTab
     ? canCreateOwners
@@ -1299,6 +1323,15 @@ export default function Users() {
             onAdd={openAddRole}
             onEdit={openEditRole}
             onDelete={setDeleteRole}
+            disabledRoles={disabledRoles}
+            canManageBuiltIn={isAdmin}
+            onDeleteBuiltIn={setDeleteBuiltInRole}
+            onRestoreBuiltIn={(r) => builtInRoleMutation.mutate({ role: r, restore: true })}
+            restoringRole={
+              builtInRoleMutation.isPending && builtInRoleMutation.variables?.restore
+                ? builtInRoleMutation.variables.role
+                : null
+            }
           />
         )
       ) : (
@@ -1864,6 +1897,17 @@ export default function Users() {
             ? `${deleteRole.user_count} staff member${deleteRole.user_count === 1 ? '' : 's'} on “${deleteRole.name}” will go back to ${ROLE_LABELS[deleteRole.base_role] || deleteRole.base_role}.`
             : `Delete the role “${deleteRole?.name || ''}”?`
         }
+        confirmText="Delete"
+        danger
+      />
+
+      <ConfirmDialog
+        open={!!deleteBuiltInRole}
+        onClose={() => setDeleteBuiltInRole(null)}
+        onConfirm={() => builtInRoleMutation.mutate({ role: deleteBuiltInRole })}
+        loading={builtInRoleMutation.isPending}
+        title="Delete Role"
+        message={`Delete the ${ROLE_LABELS[deleteBuiltInRole] || deleteBuiltInRole || ''} role? It will no longer appear when adding or editing staff. You can restore it later from this tab.`}
         confirmText="Delete"
         danger
       />

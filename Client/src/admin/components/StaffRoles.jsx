@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Edit2, Trash2, ShieldPlus, Users as UsersIcon, Plus } from 'lucide-react';
+import { Edit2, Trash2, ShieldPlus, Users as UsersIcon, Plus, RotateCcw } from 'lucide-react';
 import SearchableSelect from './ui/SearchableSelect';
 import { ROLE_LABELS, ROLE_COLORS, PAGE_CATALOG, pagesForBaseRole } from '../utils/permissions';
 
@@ -162,7 +162,19 @@ export function RoleForm({ form, setForm, baseRoleOptions }) {
   );
 }
 
-export function StaffRolesPanel({ roles, users, canManage, onAdd, onEdit, onDelete }) {
+export function StaffRolesPanel({
+  roles,
+  users,
+  canManage,
+  onAdd,
+  onEdit,
+  onDelete,
+  disabledRoles = [],
+  canManageBuiltIn = false,
+  onDeleteBuiltIn,
+  onRestoreBuiltIn,
+  restoringRole,
+}) {
   const builtInCounts = useMemo(() => {
     const counts = {};
     for (const u of users) {
@@ -171,6 +183,27 @@ export function StaffRolesPanel({ roles, users, canManage, onAdd, onEdit, onDele
     }
     return counts;
   }, [users]);
+
+  const builtInUsage = useMemo(() => {
+    const usage = {};
+    const entry = (r) => (usage[r] ||= { users: 0, customRoles: [] });
+    for (const u of users) entry(u.role).users += 1;
+    for (const r of roles) entry(r.base_role).customRoles.push(r.name);
+    return usage;
+  }, [users, roles]);
+
+  const disabledSet = new Set(disabledRoles);
+  const builtInRoles = Object.keys(ROLE_LABELS).filter((r) => r !== 'owner' && r !== 'reservations');
+  const activeBuiltIn = builtInRoles.filter((r) => !disabledSet.has(r));
+  const deletedBuiltIn = builtInRoles.filter((r) => disabledSet.has(r));
+
+  const deleteBlockReason = (r) => {
+    if (r === 'admin') return 'The CEO role cannot be deleted';
+    const u = builtInUsage[r];
+    if (u?.users) return `${u.users} staff member${u.users === 1 ? '' : 's'} still on this role`;
+    if (u?.customRoles.length) return `Custom role ${u.customRoles.join(', ')} works like this role`;
+    return null;
+  };
 
   return (
     <div className="space-y-6">
@@ -275,20 +308,71 @@ export function StaffRolesPanel({ roles, users, canManage, onAdd, onEdit, onDele
         </div>
         <div className="card">
           <div className="flex flex-wrap gap-2">
-            {Object.keys(ROLE_LABELS)
-              .filter((r) => r !== 'owner' && r !== 'reservations')
-              .map((r) => (
+            {activeBuiltIn.map((r) => {
+              const blocked = deleteBlockReason(r);
+              return (
                 <span
                   key={r}
                   className="inline-flex items-center gap-2 rounded-full border border-ch-line px-3 py-1 text-xs"
                 >
                   <span className={`badge ${ROLE_COLORS[r] || 'badge-gray'}`}>{ROLE_LABELS[r]}</span>
                   <span className="tabular-nums text-ch-muted">{builtInCounts[r] || 0}</span>
+                  {canManageBuiltIn && r !== 'admin' && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteBuiltIn?.(r)}
+                      disabled={!!blocked}
+                      className="-mr-1 p-0.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:hover:text-gray-400 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                      title={blocked ? `Can't delete: ${blocked}` : 'Delete role'}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
                 </span>
-              ))}
+              );
+            })}
           </div>
+          {canManageBuiltIn && (
+            <p className="text-[11px] text-ch-muted mt-3">
+              A built-in role can be deleted once no staff member or custom role uses it. Deleted
+              roles disappear from every role picker.
+            </p>
+          )}
         </div>
       </section>
+
+      {deletedBuiltIn.length > 0 && (
+        <section>
+          <div className="flex items-baseline justify-between gap-3 mb-3">
+            <h2 className="font-display text-lg text-ch-pine">Deleted roles</h2>
+            <span className="text-xs text-ch-muted">Hidden from role pickers</span>
+          </div>
+          <div className="card">
+            <div className="flex flex-wrap gap-2">
+              {deletedBuiltIn.map((r) => (
+                <span
+                  key={r}
+                  className="inline-flex items-center gap-2 rounded-full border border-dashed border-ch-line px-3 py-1 text-xs text-ch-muted"
+                >
+                  <span className="line-through">{ROLE_LABELS[r]}</span>
+                  {canManageBuiltIn && (
+                    <button
+                      type="button"
+                      onClick={() => onRestoreBuiltIn?.(r)}
+                      disabled={restoringRole === r}
+                      className="inline-flex items-center gap-1 text-ch-pine hover:underline disabled:opacity-50"
+                      title="Restore role"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Restore
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
