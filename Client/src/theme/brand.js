@@ -18,8 +18,9 @@ export const brand = {
   address: import.meta.env.VITE_ADDRESS || 'Zamalek, Cairo, Egypt',
   mapsUrl: import.meta.env.VITE_MAPS_URL || 'https://maps.google.com/?q=Zamalek,Cairo',
   social: {
-    facebook: 'https://www.facebook.com/cairohomes/',
+    facebook: 'https://www.facebook.com/share/1KafmmGnGN/',
     instagram: 'https://www.instagram.com/cairo.homes.eg/',
+    tiktok: 'https://www.tiktok.com/@cairohomes4',
   },
   copyright: `© ${new Date().getFullYear()} Cairo Homes Hospitality. All rights reserved.`,
 };
