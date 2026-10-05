@@ -19,7 +19,7 @@ export const brand = {
   mapsUrl: import.meta.env.VITE_MAPS_URL || 'https://maps.google.com/?q=Zamalek,Cairo',
   social: {
     facebook: 'https://www.facebook.com/cairohomes/',
-    instagram: 'https://www.instagram.com/cairohomes/',
+    instagram: 'https://www.instagram.com/cairo.homes.eg/',
   },
   copyright: `© ${new Date().getFullYear()} Cairo Homes Hospitality. All rights reserved.`,
 };
