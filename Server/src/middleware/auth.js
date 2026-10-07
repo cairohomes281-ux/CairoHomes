@@ -3,6 +3,7 @@ const { query } = require('../config/db');
 const { getServiceClient } = require('../config/supabase');
 const { isPasswordPolicyExempt } = require('../lib/staffIdentity');
 const { tokenVersionMatches } = require('../lib/staffAuthSessions');
+const { pageAccessFor, actingPagesFor, actingRoleForRequest } = require('../lib/rolePages');
 
 async function authStaff(req, res, next) {
   try {
@@ -20,9 +21,11 @@ async function authStaff(req, res, next) {
               s.petty_cash_location, s.staff_code, s.base_salary, s.pending_base_salary,
               s.salary_change_status, s.is_first_login,
               COALESCE(s.auth_token_version, 0)::int AS auth_token_version,
-              s.custom_role_id, r.name AS custom_role_name, r.pages AS custom_role_pages
+              s.custom_role_id, r.name AS custom_role_name, r.pages AS custom_role_pages,
+              rp.pages AS role_pages
        FROM staff_users s
        LEFT JOIN staff_roles r ON r.id = s.custom_role_id
+       LEFT JOIN staff_role_pages rp ON rp.role = s.role
        WHERE s.id = $1`,
       [payload.sub || payload.id]
     );
@@ -30,11 +33,20 @@ async function authStaff(req, res, next) {
     if (!tokenVersionMatches(payload, rows[0])) {
       return res.status(401).json({ error: 'Session expired. Please sign in again.' });
     }
-    req.user = {
+    const user = {
       ...rows[0],
       is_first_login:
         Boolean(Number(rows[0].is_first_login)) && !isPasswordPolicyExempt(rows[0].email),
     };
+    user.page_access = pageAccessFor(user);
+    user.acting_pages = actingPagesFor(user, user.page_access);
+    const apiPath = String(req.originalUrl || '').split('?')[0].replace(/^\/api(?=\/)/, '');
+    const actingRole = actingRoleForRequest(user, req.method, apiPath);
+    if (actingRole) {
+      user.base_role = user.role;
+      user.role = actingRole;
+    }
+    req.user = user;
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid token' });

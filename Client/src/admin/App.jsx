@@ -1,10 +1,10 @@
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { ActingRoleProvider, AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/layout/Layout';
 import OwnerLayout from './components/layout/OwnerLayout';
 import LoadingSpinner from './components/ui/LoadingSpinner';
-import { canAccess, isOwnerRole } from './utils/permissions';
+import { actingRoleForPages, canAccess, isOwnerRole } from './utils/permissions';
 import { defaultAdminPage, ADMIN_LOGIN, ADMIN_CHANGE_PASSWORD } from './utils/adminRoutes';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -62,7 +62,12 @@ function ProtectedRoute({ children, page, allowFirstLogin }) {
     return <Navigate to={defaultAdminPage(user)} replace />;
   }
 
-  const body = <Suspense fallback={<PageFallback />}>{children}</Suspense>;
+  const actingRole = actingRoleForPages(user, pages);
+  const body = (
+    <Suspense fallback={<PageFallback />}>
+      {actingRole ? <ActingRoleProvider role={actingRole}>{children}</ActingRoleProvider> : children}
+    </Suspense>
+  );
   if (allowFirstLogin) return body;
   if (isOwnerRole(user)) return <OwnerLayout>{body}</OwnerLayout>;
   return <Layout>{body}</Layout>;

@@ -2,6 +2,14 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { query, pool } = require('../../config/db');
 const { DEFAULT_USD_EGP_RATE, parseReservationCurrency } = require('../../lib/reservationCurrency');
+const {
+  DEFAULT_ROLE_PAGES,
+  PAGE_KEYS,
+  PAGE_RULES,
+  FIXED_PAGE_ROLES,
+  cleanPages,
+  defaultPagesForRole,
+} = require('../../lib/rolePages');
 const { authStaff, requireRoles, requirePasswordChanged } = require('../../middleware/auth');
 const {
   upload,
@@ -357,13 +365,19 @@ async function loadCustomRole(raw) {
 }
 
 function parseRolePages(raw) {
-  if (!Array.isArray(raw)) throw httpError(400, 'Pick at least one page for this role');
-  const pages = [
-    ...new Set(raw.map((p) => String(p || '').trim()).filter((p) => /^[a-z_]{2,40}$/.test(p))),
-  ];
-  if (!pages.length) throw httpError(400, 'Pick at least one page for this role');
-  if (pages.length > 80) throw httpError(400, 'Too many pages');
+  const pages = cleanPages(raw);
+  if (!pages || !pages.length) throw httpError(400, 'Pick at least one page for this role');
   return pages;
+}
+
+/** Only the CEO may give a role pages beyond what its base role opens by default. */
+function assertPagesWithinBaseRole(actorRole, baseRole, pages, keepPages = []) {
+  if (actorRole === 'admin') return;
+  const allowed = new Set([...defaultPagesForRole(baseRole), ...keepPages]);
+  const extra = pages.filter((p) => !allowed.has(p));
+  if (extra.length) {
+    throw httpError(403, 'Only the CEO can give a role pages beyond what its base role can open');
+  }
 }
 
 const BUILT_IN_ROLES = [
@@ -534,6 +548,7 @@ function staffRoleError(e, res, next) {
 router.post('/staff-roles', requireRoles(...HR_ROUTE_ROLES), async (req, res, next) => {
   try {
     const { name, baseRole, description, pages } = parseStaffRoleBody(req.body || {}, req.user.role);
+    assertPagesWithinBaseRole(req.user.role, baseRole, pages);
     await assertRoleEnabled(baseRole);
     const { rows } = await query(
       `INSERT INTO staff_roles (name, description, base_role, pages, created_by)
@@ -558,6 +573,7 @@ router.patch('/staff-roles/:id', requireRoles(...HR_ROUTE_ROLES), async (req, re
     if (!existing) throw httpError(404, 'Not found');
     assertCanAssignRole(req.user.role, existing.base_role);
     const { name, baseRole, description, pages } = parseStaffRoleBody(req.body || {}, req.user.role);
+    assertPagesWithinBaseRole(req.user.role, baseRole, pages, existing.pages || []);
     if (baseRole !== existing.base_role) await assertRoleEnabled(baseRole);
 
     await client.query('BEGIN');
@@ -660,6 +676,68 @@ router.post('/staff-roles/built-in/:role/restore', requireRoles('admin'), async 
     const role = parseBuiltInRole(req.params.role);
     await query(`DELETE FROM staff_disabled_roles WHERE role = $1`, [role]);
     res.json({ ok: true });
+  } catch (e) {
+    staffRoleError(e, res, next);
+  }
+});
+
+router.get('/staff-roles/page-settings', requireRoles(...HR_ROUTE_ROLES), async (_req, res, next) => {
+  try {
+    const { rows } = await query(`SELECT role, pages FROM staff_role_pages`);
+    res.json({
+      pages: PAGE_KEYS,
+      owners: Object.fromEntries(PAGE_KEYS.map((p) => [p, PAGE_RULES[p].owner])),
+      defaults: DEFAULT_ROLE_PAGES,
+      overrides: Object.fromEntries(rows.map((r) => [r.role, r.pages])),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+function parsePageEditableRole(raw) {
+  const role = String(raw || '').trim();
+  if (!BUILT_IN_ROLES.includes(role)) throw httpError(404, 'Unknown role');
+  if (FIXED_PAGE_ROLES.has(role)) throw httpError(400, 'The CEO and Owner pages cannot be changed');
+  return role;
+}
+
+router.put('/staff-roles/built-in/:role/pages', requireRoles('admin'), async (req, res, next) => {
+  try {
+    const role = parsePageEditableRole(req.params.role);
+    const pages = parseRolePages(req.body?.pages);
+    await query(
+      `INSERT INTO staff_role_pages (role, pages, updated_by, updated_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (role) DO UPDATE
+         SET pages = EXCLUDED.pages, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+      [role, pages, req.user.id]
+    );
+    await logAudit({
+      userId: req.user.id,
+      action: 'UPDATE_ROLE_PAGES',
+      entityType: 'staff_role',
+      entityId: null,
+      details: { role, pages },
+    });
+    res.json({ role, pages });
+  } catch (e) {
+    staffRoleError(e, res, next);
+  }
+});
+
+router.delete('/staff-roles/built-in/:role/pages', requireRoles('admin'), async (req, res, next) => {
+  try {
+    const role = parsePageEditableRole(req.params.role);
+    await query(`DELETE FROM staff_role_pages WHERE role = $1`, [role]);
+    await logAudit({
+      userId: req.user.id,
+      action: 'RESET_ROLE_PAGES',
+      entityType: 'staff_role',
+      entityId: null,
+      details: { role },
+    });
+    res.json({ role, pages: defaultPagesForRole(role) });
   } catch (e) {
     staffRoleError(e, res, next);
   }
@@ -1841,7 +1919,7 @@ router.get('/daily-prices/:unitId', async (req, res, next) => {
   }
 });
 
-router.put('/daily-prices/:unitId', requireRoles('admin'), async (req, res, next) => {
+router.put('/daily-prices/:unitId', requireRoles('admin', 'reservations_manager'), async (req, res, next) => {
   try {
     const { rows: u } = await query(
       `SELECT id, wp_post_id FROM units WHERE id = $1`,

@@ -189,7 +189,7 @@ export default function Sidebar({ collapsed, isMobile, mobileOpen, onCloseMobile
     items: section.items.filter(
       (item) =>
         (canAccess(item.page) || (item.altPage && canAccess(item.altPage))) &&
-        (!item.roles || item.roles.includes(user?.role)) &&
+        (!item.roles || item.roles.includes(user?.role) || user?.acting_pages?.[item.page]) &&
         (!item.excludeRoles || !item.excludeRoles.includes(user?.role))
     ),
   })).filter((section) => section.items.length);

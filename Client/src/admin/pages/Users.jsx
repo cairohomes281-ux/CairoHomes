@@ -29,7 +29,12 @@ import EmptyState from '../components/ui/EmptyState';
 import SearchFilter from '../components/ui/SearchFilter';
 import SortTh from '../components/ui/SortTh';
 import SearchableSelect from '../components/ui/SearchableSelect';
-import { StaffRolesPanel, RoleForm, EMPTY_ROLE_FORM } from '../components/StaffRoles';
+import {
+  StaffRolesPanel,
+  RoleForm,
+  BuiltInPagesForm,
+  EMPTY_ROLE_FORM,
+} from '../components/StaffRoles';
 import {
   ROLE_LABELS,
   ROLE_COLORS,
@@ -39,6 +44,7 @@ import {
   isLineManagerRole,
   HR_STAFF_FILTER_ROLES,
   ADMIN_STAFF_FILTER_ROLES,
+  defaultPagesForRole,
 } from '../utils/permissions';
 import { getRoleTheme } from '../utils/roleTheme';
 import { currency, formatDate } from '../utils/formatters';
@@ -797,6 +803,7 @@ export default function Users() {
   const [viewOwnerId, setViewOwnerId] = useState(null);
   const [roleForm, setRoleForm] = useState(EMPTY_ROLE_FORM);
   const [editRoleId, setEditRoleId] = useState(null);
+  const [roleKeepPages, setRoleKeepPages] = useState([]);
   const [deleteRole, setDeleteRole] = useState(null);
 
   const { data: users = [], isLoading } = useQuery({
@@ -835,6 +842,35 @@ export default function Users() {
     onError: (e) => toast.error(e.response?.data?.error || 'Error deleting role'),
   });
 
+  const { data: pageSettings } = useQuery({
+    queryKey: ['staff-role-page-settings'],
+    queryFn: () => api.get('/staff-roles/page-settings').then((r) => r.data),
+    enabled: canSeeRolesTab,
+  });
+  const pageOwners = pageSettings?.owners;
+  const pageOverrides = pageSettings?.overrides || {};
+
+  const [builtInPagesRole, setBuiltInPagesRole] = useState(null);
+  const [builtInPages, setBuiltInPages] = useState([]);
+  const openBuiltInPages = (r) => {
+    setBuiltInPagesRole(r);
+    setBuiltInPages(Array.isArray(pageOverrides[r]) ? pageOverrides[r] : defaultPagesForRole(r));
+  };
+  const builtInPagesMutation = useMutation({
+    mutationFn: ({ role: r, pages, reset }) =>
+      reset
+        ? api.delete(`/staff-roles/built-in/${r}/pages`)
+        : api.put(`/staff-roles/built-in/${r}/pages`, { pages }),
+    onSuccess: (_d, { role: r, reset }) => {
+      qc.invalidateQueries({ queryKey: ['staff-role-page-settings'] });
+      toast.success(
+        `${ROLE_LABELS[r] || r} pages ${reset ? 'reset to default' : 'saved'}. Staff see the change after reloading.`
+      );
+      setBuiltInPagesRole(null);
+    },
+    onError: (e) => toast.error(e.response?.data?.error || 'Error saving pages'),
+  });
+
   const [deleteBuiltInRole, setDeleteBuiltInRole] = useState(null);
   const builtInRoleMutation = useMutation({
     mutationFn: ({ role: r, restore }) =>
@@ -851,12 +887,14 @@ export default function Users() {
 
   const openAddRole = () => {
     setEditRoleId(null);
+    setRoleKeepPages([]);
     setRoleForm({ ...EMPTY_ROLE_FORM });
     setModal('role');
   };
 
   const openEditRole = (r) => {
     setEditRoleId(r.id);
+    setRoleKeepPages(Array.isArray(r.pages) ? r.pages : []);
     setRoleForm({
       name: r.name || '',
       description: r.description || '',
@@ -1332,6 +1370,8 @@ export default function Users() {
                 ? builtInRoleMutation.variables.role
                 : null
             }
+            pageOverrides={pageOverrides}
+            onEditBuiltInPages={isAdmin ? openBuiltInPages : undefined}
           />
         )
       ) : (
@@ -1883,7 +1923,59 @@ export default function Users() {
           </>
         }
       >
-        <RoleForm form={roleForm} setForm={setRoleForm} baseRoleOptions={roleBaseOptions} />
+        <RoleForm
+          form={roleForm}
+          setForm={setRoleForm}
+          baseRoleOptions={roleBaseOptions}
+          allPages={isAdmin}
+          keepPages={roleKeepPages}
+          pageOwners={pageOwners}
+        />
+      </Modal>
+
+      <Modal
+        open={!!builtInPagesRole}
+        onClose={() => setBuiltInPagesRole(null)}
+        title={`Pages for ${ROLE_LABELS[builtInPagesRole] || builtInPagesRole || ''}`}
+        size="lg"
+        footer={
+          <>
+            {Array.isArray(pageOverrides[builtInPagesRole]) && (
+              <button
+                onClick={() => builtInPagesMutation.mutate({ role: builtInPagesRole, reset: true })}
+                disabled={builtInPagesMutation.isPending}
+                className="btn-secondary mr-auto"
+              >
+                Reset to default
+              </button>
+            )}
+            <button onClick={() => setBuiltInPagesRole(null)} className="btn-secondary">
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                if (!builtInPages.length) {
+                  toast.error('Pick at least one page');
+                  return;
+                }
+                builtInPagesMutation.mutate({ role: builtInPagesRole, pages: builtInPages });
+              }}
+              disabled={builtInPagesMutation.isPending}
+              className="btn-primary"
+            >
+              {builtInPagesMutation.isPending ? 'Saving...' : 'Save Pages'}
+            </button>
+          </>
+        }
+      >
+        {builtInPagesRole && (
+          <BuiltInPagesForm
+            role={builtInPagesRole}
+            pages={builtInPages}
+            setPages={setBuiltInPages}
+            pageOwners={pageOwners}
+          />
+        )}
       </Modal>
 
       <ConfirmDialog

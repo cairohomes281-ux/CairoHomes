@@ -9,7 +9,7 @@
     "dev:db": "node scripts/dev-db.mjs",
     "seed:demo": "node scripts/seed-demo-data.js",
     "seed:demo:reset": "node scripts/seed-demo-data.js --reset",
-    "test": "node --test src/lib/calendarOccupancy.test.js src/lib/hrRules.test.js src/lib/staffUserCleanup.test.js src/lib/salesNameMatch.test.js src/lib/siteTelemetry.test.js src/lib/staffAuthSessions.test.js src/lib/reservationCurrency.test.js src/services/ical.test.js src/services/otaIcalReservations.test.js src/services/partnerWebhooks.test.js"
+    "test": "node --test src/lib/calendarOccupancy.test.js src/lib/hrRules.test.js src/lib/staffUserCleanup.test.js src/lib/salesNameMatch.test.js src/lib/siteTelemetry.test.js src/lib/staffAuthSessions.test.js src/lib/reservationCurrency.test.js src/lib/rolePages.test.js src/services/ical.test.js src/services/otaIcalReservations.test.js src/services/partnerWebhooks.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

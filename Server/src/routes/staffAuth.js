@@ -10,6 +10,7 @@ const {
 } = require('../lib/staffIdentity');
 const { normalizeOwnerPhone, ownerPhoneLoginVariants } = require('../lib/ownerPhone');
 const { staffTokenVersion } = require('../lib/staffAuthSessions');
+const { pageAccessFor, actingPagesFor } = require('../lib/rolePages');
 
 const router = express.Router();
 
@@ -20,17 +21,22 @@ const STAFF_PUBLIC_FIELDS = `
   is_first_login, COALESCE(auth_token_version, 0)::int AS auth_token_version,
   custom_role_id,
   (SELECT r.name FROM staff_roles r WHERE r.id = custom_role_id) AS custom_role_name,
-  (SELECT r.pages FROM staff_roles r WHERE r.id = custom_role_id) AS custom_role_pages
+  (SELECT r.pages FROM staff_roles r WHERE r.id = custom_role_id) AS custom_role_pages,
+  (SELECT rp.pages FROM staff_role_pages rp WHERE rp.role = staff_users.role) AS role_pages
 `;
 
 function toPublicUser(row) {
   if (!row) return null;
+  const user = { ...row, role: row.base_role || row.role };
+  const pageAccess = pageAccessFor(user);
   return {
     id: row.id,
     username: row.username,
     email: row.email,
     full_name: row.full_name,
-    role: row.role,
+    role: user.role,
+    page_access: pageAccess,
+    acting_pages: actingPagesFor(user, pageAccess),
     is_active: row.is_active,
     sales_commission_pct: row.sales_commission_pct,
     petty_cash_location: row.petty_cash_location,
@@ -72,9 +78,11 @@ router.post('/login', async (req, res, next) => {
     const canonicalPhone = normalizeOwnerPhone(identity);
 
     const { rows } = await query(
-      `SELECT s.*, r.name AS custom_role_name, r.pages AS custom_role_pages
+      `SELECT s.*, r.name AS custom_role_name, r.pages AS custom_role_pages,
+              rp.pages AS role_pages
        FROM staff_users s
        LEFT JOIN staff_roles r ON r.id = s.custom_role_id
+       LEFT JOIN staff_role_pages rp ON rp.role = s.role
        WHERE is_active = 1
          AND (
            lower(username) = lower($1)

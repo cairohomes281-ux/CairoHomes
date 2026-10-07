@@ -475,6 +475,11 @@ export function canAccess(user, page) {
   if (page === 'holiday_requests' || page === 'loans' || page === 'wfh') {
     page = 'requests';
   }
+  // Page list resolved by the server (custom role or CEO-edited built-in role).
+  if (Array.isArray(user.page_access)) {
+    const key = page === 'units_long_term' && user.role !== 'admin' ? 'units' : page;
+    return user.page_access.includes(key);
+  }
   // A custom role narrows its base role to the pages picked in User Management.
   if (Array.isArray(user.custom_role_pages)) {
     const key = page === 'units_long_term' && user.role !== 'admin' ? 'units' : page;
@@ -594,7 +599,7 @@ export function canWriteSchedule(user) {
 }
 
 export function canEditSchedulePricing(user) {
-  return !!user && user.role === 'admin';
+  return !!user && (user.role === 'admin' || user.role === 'reservations_manager');
 }
 
 export function canAccessFinance(user) {
@@ -810,6 +815,27 @@ export const PAGE_CATALOG = [
   { page: 'payroll', label: 'Payrolls', group: 'HR', path: '/admin/payroll' },
   { page: 'job_offers', label: 'Job offers', group: 'HR', path: '/admin/job-offers' },
 ];
+
+/** Default pages of a built-in role (what it opens when the CEO has not changed it). */
+export function defaultPagesForRole(role) {
+  const allowed = PAGE_ACCESS[role];
+  if (allowed === true) return PAGE_CATALOG.map((p) => p.page);
+  return allowed instanceof Set ? PAGE_CATALOG.filter((p) => allowed.has(p.page)).map((p) => p.page) : [];
+}
+
+/**
+ * Role a page should run as for this user: set when the page was granted beyond the
+ * user's own role (the server does the same for that page's API calls).
+ */
+export function actingRoleForPages(user, pages) {
+  if (!user?.acting_pages || !pages?.length) return null;
+  const own = PAGE_ACCESS[user.role];
+  if (own === true || pages.some((p) => own instanceof Set && own.has(p))) return null;
+  for (const p of pages) {
+    if (user.acting_pages[p]) return user.acting_pages[p];
+  }
+  return null;
+}
 
 /** Pages a custom role built on `baseRole` may include (never more than the base role). */
 export function pagesForBaseRole(baseRole) {

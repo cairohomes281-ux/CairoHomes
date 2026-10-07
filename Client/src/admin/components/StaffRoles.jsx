@@ -1,11 +1,28 @@
 import { useMemo } from 'react';
-import { Edit2, Trash2, ShieldPlus, Users as UsersIcon, Plus, RotateCcw } from 'lucide-react';
+import {
+  Edit2,
+  Trash2,
+  ShieldPlus,
+  Users as UsersIcon,
+  Plus,
+  RotateCcw,
+  LayoutList,
+} from 'lucide-react';
 import SearchableSelect from './ui/SearchableSelect';
-import { ROLE_LABELS, ROLE_COLORS, PAGE_CATALOG, pagesForBaseRole } from '../utils/permissions';
+import {
+  ROLE_LABELS,
+  ROLE_COLORS,
+  PAGE_CATALOG,
+  pagesForBaseRole,
+  defaultPagesForRole,
+} from '../utils/permissions';
 
 export const EMPTY_ROLE_FORM = { name: '', description: '', base_role: '', pages: [] };
 
 const PAGE_LABEL = Object.fromEntries(PAGE_CATALOG.map((p) => [p.page, p.label]));
+
+/** Pages any non-CEO role can be given (long-term units follow the Units page). */
+const ASSIGNABLE_PAGES = PAGE_CATALOG.filter((p) => !p.adminOnly);
 
 function groupPages(pages) {
   const groups = [];
@@ -20,34 +37,135 @@ function groupPages(pages) {
   return groups;
 }
 
-export function RoleForm({ form, setForm, baseRoleOptions }) {
-  const available = useMemo(() => pagesForBaseRole(form.base_role), [form.base_role]);
+/** Checkbox grid of pages; `extraNote(page)` labels pages beyond the role's own defaults. */
+function PageChecklist({ available, pages, onChange, extraNote }) {
   const groups = useMemo(() => groupPages(available), [available]);
-  const selected = new Set(form.pages || []);
+  const selected = new Set(pages || []);
 
-  const toggle = (page) =>
-    setForm((f) => {
-      const next = new Set(f.pages || []);
-      if (next.has(page)) next.delete(page);
-      else next.add(page);
-      return { ...f, pages: [...next] };
-    });
+  const toggle = (page) => {
+    const next = new Set(selected);
+    if (next.has(page)) next.delete(page);
+    else next.add(page);
+    onChange([...next]);
+  };
 
-  const setGroup = (group, on) =>
-    setForm((f) => {
-      const next = new Set(f.pages || []);
-      for (const p of group.pages) {
-        if (on) next.add(p.page);
-        else next.delete(p.page);
-      }
-      return { ...f, pages: [...next] };
-    });
+  const setGroup = (group, on) => {
+    const next = new Set(selected);
+    for (const p of group.pages) {
+      if (on) next.add(p.page);
+      else next.delete(p.page);
+    }
+    onChange([...next]);
+  };
+
+  if (!groups.length) return null;
+  return (
+    <div className="grid sm:grid-cols-2 gap-3">
+      {groups.map((g) => {
+        const onCount = g.pages.filter((p) => selected.has(p.page)).length;
+        const allOn = onCount === g.pages.length;
+        return (
+          <div key={g.name} className="rounded-xl border border-ch-line bg-white">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-ch-line bg-ch-ivory/60 rounded-t-xl">
+              <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-ch-muted">
+                {g.name}
+              </span>
+              <button
+                type="button"
+                className="text-[11px] text-ch-pine hover:underline"
+                onClick={() => setGroup(g, !allOn)}
+              >
+                {allOn ? 'None' : 'All'}
+              </button>
+            </div>
+            <div className="p-2 space-y-0.5">
+              {g.pages.map((p) => {
+                const note = extraNote?.(p.page);
+                return (
+                  <label
+                    key={p.page}
+                    className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-ch-rose/40 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      className="rounded border-ch-line text-ch-pine focus:ring-ch-pine"
+                      checked={selected.has(p.page)}
+                      onChange={() => toggle(p.page)}
+                    />
+                    <span className="flex-1 min-w-0">{p.label}</span>
+                    {note && (
+                      <span className="text-[10px] text-amber-700 bg-amber-50 rounded-full px-1.5 py-0.5 whitespace-nowrap">
+                        {note}
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SelectAllBar({ count, total, onAll, onClear, hint }) {
+  return (
+    <div className="flex items-end justify-between gap-3 mb-2">
+      <div>
+        <label className="label mb-0">Pages this role can open</label>
+        <p className="text-[11px] text-ch-muted">
+          {hint || `${count} of ${total} pages · Profile is always included`}
+        </p>
+      </div>
+      {total > 0 && (
+        <div className="flex gap-2 text-xs">
+          <button type="button" className="text-ch-pine hover:underline" onClick={onAll}>
+            Select all
+          </button>
+          <span className="text-ch-line">|</span>
+          <button type="button" className="text-ch-muted hover:underline" onClick={onClear}>
+            Clear
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Label for a page granted beyond what `role` opens by default. */
+function actsAsNote(role, owners) {
+  const own = new Set(defaultPagesForRole(role));
+  return (page) => {
+    if (!role || role === 'admin' || own.has(page)) return null;
+    const owner = owners?.[page];
+    return owner && owner !== role ? `acts as ${ROLE_LABELS[owner] || owner}` : null;
+  };
+}
+
+/**
+ * `allPages` (CEO) lets the role pick any page; otherwise it stays within its base role
+ * plus the pages it already had (`keepPages`).
+ */
+export function RoleForm({ form, setForm, baseRoleOptions, allPages = false, keepPages = [], pageOwners }) {
+  const available = useMemo(() => {
+    if (!form.base_role) return [];
+    if (allPages) return form.base_role === 'admin' ? PAGE_CATALOG : ASSIGNABLE_PAGES;
+    const base = pagesForBaseRole(form.base_role);
+    const extra = PAGE_CATALOG.filter(
+      (p) => keepPages.includes(p.page) && !base.some((b) => b.page === p.page)
+    );
+    return [...base, ...extra];
+  }, [form.base_role, allPages, keepPages]);
+  const extraNote = useMemo(() => actsAsNote(form.base_role, pageOwners), [form.base_role, pageOwners]);
+  const setPages = (pages) => setForm((f) => ({ ...f, pages }));
 
   return (
     <div className="space-y-5">
       <p className="text-xs text-ch-muted">
-        A custom role gets its own name and a chosen set of pages. It keeps the permissions of the
-        role it works like, so it can never see more than that role.
+        {allPages
+          ? 'A custom role gets its own name and a chosen set of pages. Pages outside the role it works like run with the permissions of the team that owns that page.'
+          : 'A custom role gets its own name and a chosen set of pages from the role it works like. Only the CEO can add pages beyond that role.'}
       </p>
       <div className="form-grid">
         <div>
@@ -88,76 +206,57 @@ export function RoleForm({ form, setForm, baseRoleOptions }) {
       </div>
 
       <div>
-        <div className="flex items-end justify-between gap-3 mb-2">
-          <div>
-            <label className="label mb-0">Pages this role can open</label>
-            <p className="text-[11px] text-ch-muted">
-              {form.base_role
-                ? `${selected.size} of ${available.length} pages · Profile is always included`
-                : 'Pick what the role works like to choose its pages'}
-            </p>
-          </div>
-          {available.length > 0 && (
-            <div className="flex gap-2 text-xs">
-              <button
-                type="button"
-                className="text-ch-pine hover:underline"
-                onClick={() => setForm((f) => ({ ...f, pages: available.map((p) => p.page) }))}
-              >
-                Select all
-              </button>
-              <span className="text-ch-line">|</span>
-              <button
-                type="button"
-                className="text-ch-muted hover:underline"
-                onClick={() => setForm((f) => ({ ...f, pages: [] }))}
-              >
-                Clear
-              </button>
-            </div>
-          )}
-        </div>
-        {groups.length > 0 && (
-          <div className="grid sm:grid-cols-2 gap-3">
-            {groups.map((g) => {
-              const onCount = g.pages.filter((p) => selected.has(p.page)).length;
-              const allOn = onCount === g.pages.length;
-              return (
-                <div key={g.name} className="rounded-xl border border-ch-line bg-white">
-                  <div className="flex items-center justify-between px-3 py-2 border-b border-ch-line bg-ch-ivory/60 rounded-t-xl">
-                    <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-ch-muted">
-                      {g.name}
-                    </span>
-                    <button
-                      type="button"
-                      className="text-[11px] text-ch-pine hover:underline"
-                      onClick={() => setGroup(g, !allOn)}
-                    >
-                      {allOn ? 'None' : 'All'}
-                    </button>
-                  </div>
-                  <div className="p-2 space-y-0.5">
-                    {g.pages.map((p) => (
-                      <label
-                        key={p.page}
-                        className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-ch-rose/40 text-sm"
-                      >
-                        <input
-                          type="checkbox"
-                          className="rounded border-ch-line text-ch-pine focus:ring-ch-pine"
-                          checked={selected.has(p.page)}
-                          onChange={() => toggle(p.page)}
-                        />
-                        <span>{p.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <SelectAllBar
+          count={(form.pages || []).length}
+          total={available.length}
+          hint={form.base_role ? null : 'Pick what the role works like to choose its pages'}
+          onAll={() => setPages(available.map((p) => p.page))}
+          onClear={() => setPages([])}
+        />
+        <PageChecklist
+          available={available}
+          pages={form.pages}
+          onChange={setPages}
+          extraNote={extraNote}
+        />
       </div>
+    </div>
+  );
+}
+
+/** CEO editor for the pages of a built-in role. */
+export function BuiltInPagesForm({ role, pages, setPages, pageOwners }) {
+  const extraNote = useMemo(() => actsAsNote(role, pageOwners), [role, pageOwners]);
+  const defaults = useMemo(() => defaultPagesForRole(role), [role]);
+  const removed = defaults.filter((p) => !pages.includes(p) && PAGE_LABEL[p]);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-ch-muted">
+        Choose the pages everyone on{' '}
+        <span className={`badge ${ROLE_COLORS[role] || 'badge-gray'}`}>{ROLE_LABELS[role] || role}</span>{' '}
+        can open. Pages marked “acts as” are outside this role’s usual work. On those pages the staff
+        member gets the same actions as the team that owns the page.
+      </p>
+      <div>
+        <SelectAllBar
+          count={pages.length}
+          total={ASSIGNABLE_PAGES.length}
+          onAll={() => setPages(ASSIGNABLE_PAGES.map((p) => p.page))}
+          onClear={() => setPages([])}
+        />
+        <PageChecklist
+          available={ASSIGNABLE_PAGES}
+          pages={pages}
+          onChange={setPages}
+          extraNote={extraNote}
+        />
+      </div>
+      {removed.length > 0 && (
+        <p className="text-[11px] text-ch-muted">
+          Hidden from this role: {removed.map((p) => PAGE_LABEL[p]).join(', ')}.
+        </p>
+      )}
     </div>
   );
 }
@@ -174,6 +273,8 @@ export function StaffRolesPanel({
   onDeleteBuiltIn,
   onRestoreBuiltIn,
   restoringRole,
+  pageOverrides = {},
+  onEditBuiltInPages,
 }) {
   const builtInCounts = useMemo(() => {
     const counts = {};
@@ -304,12 +405,15 @@ export function StaffRolesPanel({
       <section>
         <div className="flex items-baseline justify-between gap-3 mb-3">
           <h2 className="font-display text-lg text-ch-pine">Built-in roles</h2>
-          <span className="text-xs text-ch-muted">Custom roles are built on one of these</span>
+          <span className="text-xs text-ch-muted">
+            {canManageBuiltIn ? 'Click the pages icon to choose what a role can open' : 'Custom roles are built on one of these'}
+          </span>
         </div>
         <div className="card">
           <div className="flex flex-wrap gap-2">
             {activeBuiltIn.map((r) => {
               const blocked = deleteBlockReason(r);
+              const customised = Array.isArray(pageOverrides[r]);
               return (
                 <span
                   key={r}
@@ -317,6 +421,21 @@ export function StaffRolesPanel({
                 >
                   <span className={`badge ${ROLE_COLORS[r] || 'badge-gray'}`}>{ROLE_LABELS[r]}</span>
                   <span className="tabular-nums text-ch-muted">{builtInCounts[r] || 0}</span>
+                  {customised && (
+                    <span className="text-[10px] text-amber-700" title="Pages changed by the CEO">
+                      custom pages
+                    </span>
+                  )}
+                  {canManageBuiltIn && r !== 'admin' && onEditBuiltInPages && (
+                    <button
+                      type="button"
+                      onClick={() => onEditBuiltInPages(r)}
+                      className="-mr-1 p-0.5 rounded text-gray-400 hover:text-ch-pine hover:bg-ch-rose/50"
+                      title="Choose pages"
+                    >
+                      <LayoutList className="w-3 h-3" />
+                    </button>
+                  )}
                   {canManageBuiltIn && r !== 'admin' && (
                     <button
                       type="button"
@@ -334,8 +453,8 @@ export function StaffRolesPanel({
           </div>
           {canManageBuiltIn && (
             <p className="text-[11px] text-ch-muted mt-3">
-              A built-in role can be deleted once no staff member or custom role uses it. Deleted
-              roles disappear from every role picker.
+              The CEO always sees every page. A built-in role can be deleted once no staff member or
+              custom role uses it. Deleted roles disappear from every role picker.
             </p>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../api/axios';
 
@@ -81,6 +81,16 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   );
+}
+
+/** Runs a page with another role's permissions (pages granted beyond the user's own role). */
+export function ActingRoleProvider({ role, children }) {
+  const ctx = useContext(AuthContext);
+  const value = useMemo(
+    () => (role && ctx?.user ? { ...ctx, user: { ...ctx.user, role, base_role: ctx.user.role } } : ctx),
+    [ctx, role]
+  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => {

@@ -7,7 +7,7 @@ export function defaultAdminPage(roleOrUser) {
   if (roleOrUser && typeof roleOrUser === 'object') {
     const user = roleOrUser;
     const base = roleDefaultPage(user.role);
-    if (!Array.isArray(user.custom_role_pages)) return base;
+    if (!Array.isArray(user.page_access) && !Array.isArray(user.custom_role_pages)) return base;
     const baseEntry = PAGE_CATALOG.find((p) => p.path === base);
     if (baseEntry && canAccess(user, baseEntry.page)) return base;
     const first = PAGE_CATALOG.find((p) => p.path && canAccess(user, p.page));

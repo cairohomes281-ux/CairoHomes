@@ -678,7 +678,7 @@ function eachDateInclusive(fromStr, toStr) {
   return out;
 }
 
-router.post('/daily-prices/batch', requireRoles('admin'), async (req, res, next) => {
+router.post('/daily-prices/batch', requireRoles('admin', 'reservations_manager'), async (req, res, next) => {
   try {
     const { unit_id, from_date, to_date, price, clear } = req.body;
     const { rows: u } = await query(`SELECT wp_post_id FROM units WHERE id = $1`, [unit_id]);
