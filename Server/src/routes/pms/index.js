@@ -26,6 +26,7 @@ const {
   generateTempPassword,
   normalizeStaffCode,
   assertStaffCodeAvailable,
+  resolveAssignedProject,
   passwordPolicyOk,
   passwordPolicyMessage,
 } = require('../../lib/staffIdentity');
@@ -341,6 +342,7 @@ const STAFF_SELECT = `
   COALESCE(holiday_access, 'auto') AS holiday_access,
   manager_id,
   custom_role_id,
+  assigned_project,
   (SELECT sr.name FROM staff_roles sr WHERE sr.id = custom_role_id) AS custom_role_name
 `;
 
@@ -800,6 +802,7 @@ router.post('/users', requireRoles(...USER_ACCOUNT_ROLES), async (req, res, next
       return res.status(400).json({ error: 'Staff ID is required' });
     }
     await assertStaffCodeAvailable(staff_code);
+    const assignedProject = await resolveAssignedProject(role, b.assigned_project);
 
     let username = String(b.username || b.phone || '').trim();
     if (isOwner) {
@@ -823,8 +826,8 @@ router.post('/users', requireRoles(...USER_ACCOUNT_ROLES), async (req, res, next
          username, password_hash, email, full_name, role, staff_code,
          base_salary, salary_change_status, is_first_login, is_active,
          sales_commission_pct, leave_casual_days, leave_annual_days, leave_unpaid_days, manager_id,
-         custom_role_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,'none',1,1,$8,COALESCE($9,0),COALESCE($10,0),COALESCE($11,0),$12,$13)
+         custom_role_id, assigned_project
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,'none',1,1,$8,COALESCE($9,0),COALESCE($10,0),COALESCE($11,0),$12,$13,$14)
        RETURNING ${STAFF_SELECT}`,
       [
         username,
@@ -840,6 +843,7 @@ router.post('/users', requireRoles(...USER_ACCOUNT_ROLES), async (req, res, next
         b.leave_unpaid_days != null && b.leave_unpaid_days !== '' ? parseInt(b.leave_unpaid_days, 10) || 0 : 0,
         managerId ?? null,
         customRole ? customRole.id : null,
+        assignedProject,
       ]
     );
 
@@ -998,6 +1002,11 @@ router.patch('/users/:id', requireRoles(...USER_ACCOUNT_ROLES), async (req, res,
       await assertStaffCodeAvailable(staffCode, existing.id);
     }
 
+    let nextAssignedProject = nextRole === 'operations' ? existing.assigned_project || null : null;
+    if (nextRole === 'operations' && (b.assigned_project !== undefined || existing.role !== 'operations')) {
+      nextAssignedProject = await resolveAssignedProject(nextRole, b.assigned_project);
+    }
+
     const managerPayloadProvided = b.manager_id !== undefined || b.manager_ids !== undefined;
     const roleChanged = nextRole !== existing.role;
     let nextManagerId = existing.manager_id;
@@ -1037,6 +1046,7 @@ router.patch('/users/:id', requireRoles(...USER_ACCOUNT_ROLES), async (req, res,
          staff_code = $16,
          manager_id = $17,
          custom_role_id = $19,
+         assigned_project = $20,
          updated_at = now()
        WHERE id = $18
        RETURNING ${STAFF_SELECT}`,
@@ -1060,6 +1070,7 @@ router.patch('/users/:id', requireRoles(...USER_ACCOUNT_ROLES), async (req, res,
         nextManagerId,
         req.params.id,
         nextCustomRoleId,
+        nextAssignedProject,
       ]
     );
     if (nextRole !== 'owner' && managerIdsToSync !== null) {

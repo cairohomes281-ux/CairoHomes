@@ -65,6 +65,13 @@ function parseOpsDateRange(rangeRaw) {
   return { range: 'month', from, to };
 }
 
+/** Units without a project can go to any agent. */
+function projectMatches(agentProject, unitProject) {
+  const unit = String(unitProject || '').trim().toLowerCase();
+  if (!unit) return true;
+  return String(agentProject || '').trim().toLowerCase() === unit;
+}
+
 function isOpsSupervisor(user) {
   return user?.role === 'admin' || user?.role === OPS_SUPER;
 }
@@ -300,7 +307,7 @@ function assertOpsCanAct(req, row) {
 router.get('/ops/agents', requireRoles(...OPS_SUPER_ROLES), async (_req, res, next) => {
   try {
     const { rows } = await query(
-      `SELECT id, full_name, username, staff_code
+      `SELECT id, full_name, username, staff_code, assigned_project
        FROM staff_users
        WHERE role = $1 AND is_active = 1
        ORDER BY full_name ASC NULLS LAST, username ASC`,
@@ -392,10 +399,15 @@ router.post(
 
       if (staffId) {
         const { rows: agents } = await query(
-          `SELECT id FROM staff_users WHERE id = $1 AND role = $2 AND is_active = 1`,
+          `SELECT id, assigned_project FROM staff_users WHERE id = $1 AND role = $2 AND is_active = 1`,
           [staffId, OPS_AGENT]
         );
         if (!agents[0]) return res.status(400).json({ error: 'Select an active operations agent' });
+        if (!projectMatches(agents[0].assigned_project, row.project)) {
+          return res.status(400).json({
+            error: `This agent works ${agents[0].assigned_project || 'no project'}, not ${row.project}`,
+          });
+        }
       }
 
       await query(

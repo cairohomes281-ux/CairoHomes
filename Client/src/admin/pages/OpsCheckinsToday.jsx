@@ -8,6 +8,17 @@ import { useAuth } from '../context/AuthContext';
 import { currency } from '../utils/formatters';
 import { OpsDateRangeFilter, formatOpsDay } from '../components/OpsDateRangeFilter';
 
+/** Agents who work this check-in's project, plus whoever already holds it. */
+function agentsForProject(agents, row) {
+  const project = String(row.project || '').trim().toLowerCase();
+  return agents.filter(
+    (a) =>
+      Number(a.id) === Number(row.ops_assigned_to) ||
+      !project ||
+      String(a.assigned_project || '').trim().toLowerCase() === project
+  );
+}
+
 function MoneyLine({ label, value, emphasize = false, showZero = false }) {
   if (value == null || (!showZero && Number(value) === 0)) return null;
   return (
@@ -442,7 +453,7 @@ export function CheckinsTodaySection({ embedded = false }) {
                           }
                         >
                           <option value="">Unassigned</option>
-                          {agents.map((a) => (
+                          {agentsForProject(agents, r).map((a) => (
                             <option key={a.id} value={a.id}>
                               {a.full_name || a.username}
                               {a.staff_code ? ` (${a.staff_code})` : ''}

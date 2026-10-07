@@ -70,6 +70,27 @@ async function assertStaffCodeAvailable(code, exceptId = null) {
   }
 }
 
+/** Operations agents must work one project from the catalog; other roles have none. */
+async function resolveAssignedProject(role, value) {
+  if (role !== 'operations') return null;
+  const name = String(value || '').trim();
+  if (!name) {
+    const err = new Error('Operations agents must be assigned to a project');
+    err.status = 400;
+    throw err;
+  }
+  const { rows } = await query(
+    `SELECT name FROM location_projects WHERE lower(btrim(name)) = lower($1) LIMIT 1`,
+    [name]
+  );
+  if (!rows[0]) {
+    const err = new Error(`Unknown project "${name}"`);
+    err.status = 400;
+    throw err;
+  }
+  return String(rows[0].name).trim();
+}
+
 /** One-time temporary password that meets policy (shown once to the admin). */
 function generateTempPassword() {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -120,6 +141,7 @@ module.exports = {
   generateUniqueStaffCode,
   normalizeStaffCode,
   assertStaffCodeAvailable,
+  resolveAssignedProject,
   isPasswordPolicyExempt,
   passwordPolicyOk,
   passwordPolicyMessage,

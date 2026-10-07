@@ -48,6 +48,7 @@ import {
 } from '../utils/permissions';
 import { getRoleTheme } from '../utils/roleTheme';
 import { currency, formatDate } from '../utils/formatters';
+import { useProjectCatalog } from '../../hooks/useProjectCatalog';
 
 const TABS = [
   { id: 'staff', label: 'Staff', icon: UsersIcon },
@@ -75,6 +76,7 @@ const EMPTY_STAFF_FORM = {
   staff_code: '',
   manager_id: '',
   manager_ids: [],
+  assigned_project: '',
 };
 
 const EMPTY_OWNER_FORM = {
@@ -292,6 +294,10 @@ function isWebDeveloperRole(role) {
   return role === 'web_developer';
 }
 
+function isOpsAgentRole(role) {
+  return role === 'operations';
+}
+
 function usesCommissionPct(role) {
   return isReservationAgentRole(role) || isResaleAgentRole(role);
 }
@@ -311,6 +317,13 @@ function StaffForm({
   );
   const roleValue = form.custom_role_id ? `${CUSTOM_PREFIX}${form.custom_role_id}` : form.role;
   const showCommission = usesCommissionPct(form.role);
+  const { destinations, projectsByDestination } = useProjectCatalog();
+  const projectOptions = destinations.flatMap((d) =>
+    (projectsByDestination[d] || []).map((p) => ({ value: p, label: `${p} · ${d}` }))
+  );
+  if (form.assigned_project && !projectOptions.some((o) => o.value === form.assigned_project)) {
+    projectOptions.unshift({ value: form.assigned_project, label: form.assigned_project });
+  }
   const lockHint = 'Only HR, an HR Manager, or a CEO can change salary and holiday balances.';
   return (
     <div className="space-y-4">
@@ -395,6 +408,20 @@ function StaffForm({
             </p>
           ) : null}
         </div>
+        {isOpsAgentRole(form.role) ? (
+          <div>
+            <label className="label">Project *</label>
+            <SearchableSelect
+              value={form.assigned_project || ''}
+              onChange={(v) => setForm((f) => ({ ...f, assigned_project: v }))}
+              placeholder="Select project…"
+              options={projectOptions}
+            />
+            <p className="mt-1 text-[11px] text-slate-400">
+              Only check-ins for units in this project can be assigned to this agent.
+            </p>
+          </div>
+        ) : null}
         {form.role !== 'admin' && form.role !== 'owner' ? (
           isWebDeveloperRole(form.role) ? (
             <div className="sm:col-span-2">
@@ -1152,6 +1179,7 @@ export default function Users() {
             ? [u.manager_id]
             : []
         ).map(String),
+        assigned_project: u.assigned_project || '',
       });
       setModal('edit-staff');
     }
@@ -1186,6 +1214,10 @@ export default function Users() {
       toast.error('Staff ID is required');
       return;
     }
+    if (isOpsAgentRole(staffForm.role) && !String(staffForm.assigned_project || '').trim()) {
+      toast.error('Select the project this operations agent works');
+      return;
+    }
     if (usesCommissionPct(staffForm.role)) {
       if (staffForm.sales_commission_pct === '' || staffForm.sales_commission_pct == null) {
         toast.error('Commission % is required for this role');
@@ -1204,6 +1236,7 @@ export default function Users() {
       leave_casual_days: Number(staffForm.leave_casual_days) || 0,
       leave_annual_days: Number(staffForm.leave_annual_days) || 0,
       staff_code: String(staffForm.staff_code || '').trim(),
+      assigned_project: isOpsAgentRole(staffForm.role) ? staffForm.assigned_project : null,
       manager_id: isWebDeveloperRole(staffForm.role)
         ? null
         : staffForm.manager_id
@@ -1596,6 +1629,13 @@ export default function Users() {
                       {u.custom_role_id ? (
                         <div className="mt-1 text-[10px] text-ch-muted">
                           Works like {ROLE_LABELS[u.role] || u.role}
+                        </div>
+                      ) : null}
+                      {u.role === 'operations' ? (
+                        <div
+                          className={`mt-1 text-[10px] ${u.assigned_project ? 'text-ch-muted' : 'font-semibold text-red-600'}`}
+                        >
+                          {u.assigned_project ? `Project: ${u.assigned_project}` : 'No project assigned'}
                         </div>
                       ) : null}
                     </td>
