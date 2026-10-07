@@ -37,6 +37,11 @@ const addDays = (d, n) => {
   return localISO(new Date(y, m - 1, day + n));
 };
 
+const addMonths = (d, n) => {
+  const [y, m, day] = String(d).split('-').map(Number);
+  return localISO(new Date(y, m - 1 + n, day));
+};
+
 const isoDate = (d) => localISO(d);
 
 function getMonthDates(year, month) {
@@ -817,11 +822,7 @@ export default function Schedule() {
   const { canEditSchedulePricing, canManageReservations, canReserveLongTermUnits, canWriteSchedule, isManualReservations, isWebsiteReservations, isReservationsManager, isAdmin } = usePermissions();
   const TODAY = todayStr();
   const TOMORROW = addDays(TODAY, 1);
-  const now = new Date();
-
-  
-  const [viewYear, setViewYear]   = useState(now.getFullYear());
-  const [viewMonth, setViewMonth] = useState(now.getMonth());
+  const [viewStart, setViewStart] = useState(TODAY);
   const [spanMonths, setSpanMonths] = useState(2);
 
   
@@ -889,8 +890,8 @@ export default function Schedule() {
   const [holdDetailId,      setHoldDetailId]      = useState(null);
 
   
-  const defaultFrom = isoDate(new Date(viewYear, viewMonth, 1));
-  const defaultTo   = isoDate(new Date(viewYear, viewMonth + spanMonths, 1)); 
+  const defaultFrom = viewStart;
+  const defaultTo   = addMonths(viewStart, spanMonths);
 
   
   
@@ -928,15 +929,11 @@ export default function Schedule() {
   }, [fromStr, toStr]);
 
   const monthLabel = useMemo(() => {
-    const start = new Date(viewYear, viewMonth, 1);
-    if (spanMonths === 1) {
-      return start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    }
-    const end = new Date(viewYear, viewMonth + spanMonths - 1, 1);
-    const a = start.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    const b = end.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    return `${a} – ${b}`;
-  }, [viewYear, viewMonth, spanMonths]);
+    const fmt = (s) =>
+      new Date(`${s}T00:00:00`).toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+    const last = addDays(addMonths(viewStart, spanMonths), -1);
+    return `${fmt(viewStart)} – ${fmt(last)} ${last.slice(0, 4)}`;
+  }, [viewStart, spanMonths]);
 
   
   const { data, isLoading } = useQuery({
@@ -1204,9 +1201,9 @@ export default function Schedule() {
   });
 
   
-  const goPrevMonth = () => { if (viewMonth === 0) { setViewYear(y=>y-1); setViewMonth(11); } else setViewMonth(m=>m-1); };
-  const goNextMonth = () => { if (viewMonth === 11) { setViewYear(y=>y+1); setViewMonth(0);  } else setViewMonth(m=>m+1); };
-  const goThisMonth = () => { setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); };
+  const goPrevMonth = () => setViewStart((s) => addMonths(s, -1));
+  const goNextMonth = () => setViewStart((s) => addMonths(s, 1));
+  const goThisMonth = () => setViewStart(TODAY);
 
   const hasFilters = filterBedrooms || filterProject || filterFrom || filterTo || filterColor || filterUnits.length || filterFloor || filterPriceMin || filterPriceMax || filterAvailable;
   const clearFilters = () => { setFilterBedrooms(''); setFilterProject(''); setFilterFrom(''); setFilterTo(''); setFilterColor(''); setFilterUnits([]); setFilterFloor(''); setFilterPriceMin(''); setFilterPriceMax(''); setFilterAvailable(false); };

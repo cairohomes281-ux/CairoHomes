@@ -56,6 +56,29 @@ function isAdmin(user) {
   return user?.role === 'admin';
 }
 
+function isOpsAgent(user) {
+  return user?.role === 'operations';
+}
+
+async function opsAgentUnitIds(user) {
+  const { rows } = await query(
+    `SELECT unit_id::text AS unit_id FROM staff_unit_assignments WHERE staff_id = $1`,
+    [user.id]
+  );
+  return rows.map((r) => r.unit_id);
+}
+
+const OPS_UNIT_FORBIDDEN = 'You can only book units you are assigned to';
+
+/** True when an operations agent targets a unit outside their assignment. */
+async function blocksOpsAgentUnit(user, unitIds) {
+  if (!isOpsAgent(user)) return false;
+  const wanted = unitIds.filter(Boolean).map(String);
+  if (!wanted.length) return false;
+  const mine = new Set(await opsAgentUnitIds(user));
+  return wanted.some((id) => !mine.has(id));
+}
+
 /** Roles that may list/view all reservations (not scoped to own sales). */
 const BROAD_RESERVATION_ACCESS_ROLES = new Set(['admin', 'owners_relations']);
 
@@ -182,9 +205,11 @@ function reservationScopeClause(user, alias = 'r', paramIndex = 1) {
     };
   }
 
-  if (user.role === 'operations') {
+  if (isOpsAgent(user)) {
     return {
-      clause: ` AND ${alias}.ops_assigned_to = $${paramIndex}`,
+      clause: ` AND ${alias}.unit_id IN (
+        SELECT unit_id FROM staff_unit_assignments WHERE staff_id = $${paramIndex}
+      )`,
       params: [user.id],
       nextIndex: paramIndex + 1,
     };
@@ -337,6 +362,13 @@ function isOwnReservation(user, reservation) {
 
 async function assertReservationOwned(user, reservation) {
   if (hasBroadReservationAccess(user) || isAdmin(user)) return;
+  if (isOpsAgent(user)) {
+    const units = await opsAgentUnitIds(user);
+    if (reservation && units.includes(String(reservation.unit_id))) return;
+    const err = new Error('You can only access reservations on your assigned units');
+    err.status = 403;
+    throw err;
+  }
   if (hasWebsiteAllReservationAccess(user)) {
     if (isWebsiteOriginReservation(reservation)) return;
     const err = new Error('Finance can only access website reservations');
@@ -410,6 +442,10 @@ module.exports = {
   isWebsiteReservationsAgent,
   isManualReservationsAgent,
   isAdmin,
+  isOpsAgent,
+  opsAgentUnitIds,
+  blocksOpsAgentUnit,
+  OPS_UNIT_FORBIDDEN,
   hasBroadReservationAccess,
   hasWebsiteAllReservationAccess,
   hasTeamReservationAccess,

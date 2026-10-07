@@ -70,25 +70,42 @@ async function assertStaffCodeAvailable(code, exceptId = null) {
   }
 }
 
-/** Operations agents must work one project from the catalog; other roles have none. */
-async function resolveAssignedProject(role, value) {
-  if (role !== 'operations') return null;
-  const name = String(value || '').trim();
-  if (!name) {
-    const err = new Error('Operations agents must be assigned to a project');
-    err.status = 400;
-    throw err;
-  }
-  const { rows } = await query(
-    `SELECT name FROM location_projects WHERE lower(btrim(name)) = lower($1) LIMIT 1`,
-    [name]
+/** Operations agents must be assigned at least one unit; other roles have none. */
+async function resolveAssignedUnits(role, value) {
+  if (role !== 'operations') return [];
+  const ids = [...new Set((Array.isArray(value) ? value : []).map((v) => String(v || '').trim()))].filter(
+    Boolean
   );
-  if (!rows[0]) {
-    const err = new Error(`Unknown project "${name}"`);
+  if (!ids.length) {
+    const err = new Error('Operations agents must be assigned at least one unit');
     err.status = 400;
     throw err;
   }
-  return String(rows[0].name).trim();
+  let rows;
+  try {
+    ({ rows } = await query(`SELECT id::text AS id FROM units WHERE id = ANY($1::uuid[])`, [ids]));
+  } catch (e) {
+    if (e.code !== '22P02') throw e;
+    rows = [];
+  }
+  if (rows.length !== ids.length) {
+    const err = new Error('One or more selected units no longer exist');
+    err.status = 400;
+    throw err;
+  }
+  return ids;
+}
+
+async function setStaffUnits(staffId, unitIds) {
+  await query(`DELETE FROM staff_unit_assignments WHERE staff_id = $1`, [staffId]);
+  if (unitIds.length) {
+    await query(
+      `INSERT INTO staff_unit_assignments (staff_id, unit_id)
+       SELECT $1, unnest($2::uuid[])
+       ON CONFLICT DO NOTHING`,
+      [staffId, unitIds]
+    );
+  }
 }
 
 /** One-time temporary password that meets policy (shown once to the admin). */
@@ -141,7 +158,8 @@ module.exports = {
   generateUniqueStaffCode,
   normalizeStaffCode,
   assertStaffCodeAvailable,
-  resolveAssignedProject,
+  resolveAssignedUnits,
+  setStaffUnits,
   isPasswordPolicyExempt,
   passwordPolicyOk,
   passwordPolicyMessage,

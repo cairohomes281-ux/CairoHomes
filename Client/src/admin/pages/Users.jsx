@@ -48,8 +48,6 @@ import {
 } from '../utils/permissions';
 import { getRoleTheme } from '../utils/roleTheme';
 import { currency, formatDate } from '../utils/formatters';
-import { useProjectCatalog } from '../../hooks/useProjectCatalog';
-
 const TABS = [
   { id: 'staff', label: 'Staff', icon: UsersIcon },
   { id: 'roles', label: 'Roles', icon: ShieldPlus },
@@ -76,7 +74,7 @@ const EMPTY_STAFF_FORM = {
   staff_code: '',
   manager_id: '',
   manager_ids: [],
-  assigned_project: '',
+  assigned_unit_ids: [],
 };
 
 const EMPTY_OWNER_FORM = {
@@ -298,6 +296,116 @@ function isOpsAgentRole(role) {
   return role === 'operations';
 }
 
+function OpsUnitPicker({ selectedIds, onChange }) {
+  const [search, setSearch] = useState('');
+  const { data: units = [], isLoading } = useQuery({
+    queryKey: ['units'],
+    queryFn: () => api.get('/units').then((r) => r.data),
+  });
+  const selected = new Set((selectedIds || []).map(String));
+  const q = search.trim().toLowerCase();
+  const list = (Array.isArray(units) ? units : []).filter((u) => {
+    if (!q) return true;
+    return [u.unit_number, u.name, u.title, u.project]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(q);
+  });
+  const groups = [];
+  const byProject = new Map();
+  for (const u of list) {
+    const key = u.project || 'No project';
+    if (!byProject.has(key)) {
+      byProject.set(key, []);
+      groups.push(key);
+    }
+    byProject.get(key).push(u);
+  }
+  groups.sort((a, b) => a.localeCompare(b));
+
+  const setIds = (ids) => onChange([...ids]);
+  const toggle = (id) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setIds(next);
+  };
+  const toggleGroup = (items, allOn) => {
+    const next = new Set(selected);
+    for (const u of items) {
+      if (allOn) next.delete(String(u.id));
+      else next.add(String(u.id));
+    }
+    setIds(next);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <label className="label mb-0">Assigned units *</label>
+        <span className="text-[11px] text-slate-400">{selected.size} selected</span>
+      </div>
+      <p className="text-[11px] text-slate-500">
+        This agent only sees these units on the Schedule and Reservations pages, and only their
+        check-ins can be assigned to him.
+      </p>
+      <input
+        className="input"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search unit or project…"
+      />
+      <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+        {isLoading ? (
+          <p className="p-3 text-center text-xs text-slate-400">Loading units…</p>
+        ) : groups.length === 0 ? (
+          <p className="p-3 text-center text-xs text-slate-400">No matching units</p>
+        ) : (
+          groups.map((g) => {
+            const items = byProject.get(g);
+            const allOn = items.every((u) => selected.has(String(u.id)));
+            return (
+              <div key={g} className="border-b border-slate-100 last:border-b-0">
+                <label className="flex items-center gap-2 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="rounded border-ch-line"
+                    checked={allOn}
+                    onChange={() => toggleGroup(items, allOn)}
+                  />
+                  {g}
+                  <span className="font-normal text-slate-400">({items.length})</span>
+                </label>
+                {items.map((u) => {
+                  const id = String(u.id);
+                  return (
+                    <label
+                      key={id}
+                      className="flex items-center gap-3 px-3 py-2 pl-8 text-sm cursor-pointer hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded border-ch-line"
+                        checked={selected.has(id)}
+                        onChange={() => toggle(id)}
+                      />
+                      <span className="font-mono text-xs font-semibold text-slate-700">
+                        {u.unit_number || '—'}
+                      </span>
+                      <span className="min-w-0 truncate text-slate-600">{u.name || u.title}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 function usesCommissionPct(role) {
   return isReservationAgentRole(role) || isResaleAgentRole(role);
 }
@@ -317,13 +425,6 @@ function StaffForm({
   );
   const roleValue = form.custom_role_id ? `${CUSTOM_PREFIX}${form.custom_role_id}` : form.role;
   const showCommission = usesCommissionPct(form.role);
-  const { destinations, projectsByDestination } = useProjectCatalog();
-  const projectOptions = destinations.flatMap((d) =>
-    (projectsByDestination[d] || []).map((p) => ({ value: p, label: `${p} · ${d}` }))
-  );
-  if (form.assigned_project && !projectOptions.some((o) => o.value === form.assigned_project)) {
-    projectOptions.unshift({ value: form.assigned_project, label: form.assigned_project });
-  }
   const lockHint = 'Only HR, an HR Manager, or a CEO can change salary and holiday balances.';
   return (
     <div className="space-y-4">
@@ -409,17 +510,11 @@ function StaffForm({
           ) : null}
         </div>
         {isOpsAgentRole(form.role) ? (
-          <div>
-            <label className="label">Project *</label>
-            <SearchableSelect
-              value={form.assigned_project || ''}
-              onChange={(v) => setForm((f) => ({ ...f, assigned_project: v }))}
-              placeholder="Select project…"
-              options={projectOptions}
+          <div className="sm:col-span-2">
+            <OpsUnitPicker
+              selectedIds={form.assigned_unit_ids || []}
+              onChange={(ids) => setForm((f) => ({ ...f, assigned_unit_ids: ids }))}
             />
-            <p className="mt-1 text-[11px] text-slate-400">
-              Only check-ins for units in this project can be assigned to this agent.
-            </p>
           </div>
         ) : null}
         {form.role !== 'admin' && form.role !== 'owner' ? (
@@ -1179,7 +1274,7 @@ export default function Users() {
             ? [u.manager_id]
             : []
         ).map(String),
-        assigned_project: u.assigned_project || '',
+        assigned_unit_ids: (u.assigned_unit_ids || []).map(String),
       });
       setModal('edit-staff');
     }
@@ -1214,8 +1309,8 @@ export default function Users() {
       toast.error('Staff ID is required');
       return;
     }
-    if (isOpsAgentRole(staffForm.role) && !String(staffForm.assigned_project || '').trim()) {
-      toast.error('Select the project this operations agent works');
+    if (isOpsAgentRole(staffForm.role) && !(staffForm.assigned_unit_ids || []).length) {
+      toast.error('Select at least one unit for this operations agent');
       return;
     }
     if (usesCommissionPct(staffForm.role)) {
@@ -1236,7 +1331,7 @@ export default function Users() {
       leave_casual_days: Number(staffForm.leave_casual_days) || 0,
       leave_annual_days: Number(staffForm.leave_annual_days) || 0,
       staff_code: String(staffForm.staff_code || '').trim(),
-      assigned_project: isOpsAgentRole(staffForm.role) ? staffForm.assigned_project : null,
+      assigned_unit_ids: isOpsAgentRole(staffForm.role) ? staffForm.assigned_unit_ids : [],
       manager_id: isWebDeveloperRole(staffForm.role)
         ? null
         : staffForm.manager_id
@@ -1633,9 +1728,11 @@ export default function Users() {
                       ) : null}
                       {u.role === 'operations' ? (
                         <div
-                          className={`mt-1 text-[10px] ${u.assigned_project ? 'text-ch-muted' : 'font-semibold text-red-600'}`}
+                          className={`mt-1 text-[10px] ${u.assigned_unit_ids?.length ? 'text-ch-muted' : 'font-semibold text-red-600'}`}
                         >
-                          {u.assigned_project ? `Project: ${u.assigned_project}` : 'No project assigned'}
+                          {u.assigned_unit_ids?.length
+                            ? `${u.assigned_unit_ids.length} unit${u.assigned_unit_ids.length === 1 ? '' : 's'} assigned`
+                            : 'No units assigned'}
                         </div>
                       ) : null}
                     </td>

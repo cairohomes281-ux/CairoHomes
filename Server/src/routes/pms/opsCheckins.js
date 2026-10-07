@@ -65,13 +65,6 @@ function parseOpsDateRange(rangeRaw) {
   return { range: 'month', from, to };
 }
 
-/** Units without a project can go to any agent. */
-function projectMatches(agentProject, unitProject) {
-  const unit = String(unitProject || '').trim().toLowerCase();
-  if (!unit) return true;
-  return String(agentProject || '').trim().toLowerCase() === unit;
-}
-
 function isOpsSupervisor(user) {
   return user?.role === 'admin' || user?.role === OPS_SUPER;
 }
@@ -307,7 +300,11 @@ function assertOpsCanAct(req, row) {
 router.get('/ops/agents', requireRoles(...OPS_SUPER_ROLES), async (_req, res, next) => {
   try {
     const { rows } = await query(
-      `SELECT id, full_name, username, staff_code, assigned_project
+      `SELECT id, full_name, username, staff_code,
+              COALESCE(
+                (SELECT array_agg(sa.unit_id::text) FROM staff_unit_assignments sa WHERE sa.staff_id = staff_users.id),
+                '{}'
+              ) AS assigned_unit_ids
        FROM staff_users
        WHERE role = $1 AND is_active = 1
        ORDER BY full_name ASC NULLS LAST, username ASC`,
@@ -399,14 +396,18 @@ router.post(
 
       if (staffId) {
         const { rows: agents } = await query(
-          `SELECT id, assigned_project FROM staff_users WHERE id = $1 AND role = $2 AND is_active = 1`,
-          [staffId, OPS_AGENT]
+          `SELECT s.id,
+                  EXISTS (
+                    SELECT 1 FROM staff_unit_assignments sa
+                    WHERE sa.staff_id = s.id AND sa.unit_id = $3::uuid
+                  ) AS has_unit
+           FROM staff_users s
+           WHERE s.id = $1 AND s.role = $2 AND s.is_active = 1`,
+          [staffId, OPS_AGENT, row.unit_id]
         );
         if (!agents[0]) return res.status(400).json({ error: 'Select an active operations agent' });
-        if (!projectMatches(agents[0].assigned_project, row.project)) {
-          return res.status(400).json({
-            error: `This agent works ${agents[0].assigned_project || 'no project'}, not ${row.project}`,
-          });
+        if (!agents[0].has_unit) {
+          return res.status(400).json({ error: 'This agent is not assigned to this unit' });
         }
       }
 

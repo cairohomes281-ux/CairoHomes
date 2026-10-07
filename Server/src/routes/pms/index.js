@@ -26,7 +26,8 @@ const {
   generateTempPassword,
   normalizeStaffCode,
   assertStaffCodeAvailable,
-  resolveAssignedProject,
+  resolveAssignedUnits,
+  setStaffUnits,
   passwordPolicyOk,
   passwordPolicyMessage,
 } = require('../../lib/staffIdentity');
@@ -47,6 +48,9 @@ const {
   assertAssignableSalesPerson,
   isReservationsAgent,
   isAdmin,
+  isOpsAgent,
+  blocksOpsAgentUnit,
+  OPS_UNIT_FORBIDDEN,
 } = require('../../lib/reservationScope');
 const { lookupProjectMinNights } = require('../../lib/minStay');
 const { beachAccessPersistValues, enrichUnitsWithBeachPolicy, withBeachPolicy, computeBeachAccessFee } = require('../../lib/beachAccess');
@@ -342,7 +346,10 @@ const STAFF_SELECT = `
   COALESCE(holiday_access, 'auto') AS holiday_access,
   manager_id,
   custom_role_id,
-  assigned_project,
+  COALESCE(
+    (SELECT array_agg(sa.unit_id::text) FROM staff_unit_assignments sa WHERE sa.staff_id = staff_users.id),
+    '{}'
+  ) AS assigned_unit_ids,
   (SELECT sr.name FROM staff_roles sr WHERE sr.id = custom_role_id) AS custom_role_name
 `;
 
@@ -802,7 +809,7 @@ router.post('/users', requireRoles(...USER_ACCOUNT_ROLES), async (req, res, next
       return res.status(400).json({ error: 'Staff ID is required' });
     }
     await assertStaffCodeAvailable(staff_code);
-    const assignedProject = await resolveAssignedProject(role, b.assigned_project);
+    const assignedUnitIds = await resolveAssignedUnits(role, b.assigned_unit_ids);
 
     let username = String(b.username || b.phone || '').trim();
     if (isOwner) {
@@ -826,8 +833,8 @@ router.post('/users', requireRoles(...USER_ACCOUNT_ROLES), async (req, res, next
          username, password_hash, email, full_name, role, staff_code,
          base_salary, salary_change_status, is_first_login, is_active,
          sales_commission_pct, leave_casual_days, leave_annual_days, leave_unpaid_days, manager_id,
-         custom_role_id, assigned_project
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,'none',1,1,$8,COALESCE($9,0),COALESCE($10,0),COALESCE($11,0),$12,$13,$14)
+         custom_role_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,'none',1,1,$8,COALESCE($9,0),COALESCE($10,0),COALESCE($11,0),$12,$13)
        RETURNING ${STAFF_SELECT}`,
       [
         username,
@@ -843,15 +850,19 @@ router.post('/users', requireRoles(...USER_ACCOUNT_ROLES), async (req, res, next
         b.leave_unpaid_days != null && b.leave_unpaid_days !== '' ? parseInt(b.leave_unpaid_days, 10) || 0 : 0,
         managerId ?? null,
         customRole ? customRole.id : null,
-        assignedProject,
       ]
     );
 
     if (!isOwner) {
       await syncStaffManagers(rows[0].id, role, managerIds);
     }
+    await setStaffUnits(rows[0].id, assignedUnitIds);
 
-    const user = { ...(await attachManagerIds([rows[0]]))[0], is_first_login: true };
+    const user = {
+      ...(await attachManagerIds([rows[0]]))[0],
+      assigned_unit_ids: assignedUnitIds,
+      is_first_login: true,
+    };
     let linkedUnits = [];
     let unitLinkError = null;
     if (isOwner && Array.isArray(b.unit_ids) && b.unit_ids.length) {
@@ -1002,9 +1013,11 @@ router.patch('/users/:id', requireRoles(...USER_ACCOUNT_ROLES), async (req, res,
       await assertStaffCodeAvailable(staffCode, existing.id);
     }
 
-    let nextAssignedProject = nextRole === 'operations' ? existing.assigned_project || null : null;
-    if (nextRole === 'operations' && (b.assigned_project !== undefined || existing.role !== 'operations')) {
-      nextAssignedProject = await resolveAssignedProject(nextRole, b.assigned_project);
+    let nextUnitIds = null;
+    if (nextRole !== 'operations') {
+      nextUnitIds = [];
+    } else if (b.assigned_unit_ids !== undefined || existing.role !== 'operations') {
+      nextUnitIds = await resolveAssignedUnits(nextRole, b.assigned_unit_ids);
     }
 
     const managerPayloadProvided = b.manager_id !== undefined || b.manager_ids !== undefined;
@@ -1026,6 +1039,8 @@ router.patch('/users/:id', requireRoles(...USER_ACCOUNT_ROLES), async (req, res,
       managerIdsToSync = resolved.managerIds;
     }
 
+    if (nextUnitIds) await setStaffUnits(existing.id, nextUnitIds);
+
     const { rows } = await query(
       `UPDATE staff_users SET
          full_name = COALESCE($1, full_name),
@@ -1046,7 +1061,6 @@ router.patch('/users/:id', requireRoles(...USER_ACCOUNT_ROLES), async (req, res,
          staff_code = $16,
          manager_id = $17,
          custom_role_id = $19,
-         assigned_project = $20,
          updated_at = now()
        WHERE id = $18
        RETURNING ${STAFF_SELECT}`,
@@ -1070,7 +1084,6 @@ router.patch('/users/:id', requireRoles(...USER_ACCOUNT_ROLES), async (req, res,
         nextManagerId,
         req.params.id,
         nextCustomRoleId,
-        nextAssignedProject,
       ]
     );
     if (nextRole !== 'owner' && managerIdsToSync !== null) {
@@ -1252,6 +1265,10 @@ router.get('/units', async (req, res, next) => {
     if (bedrooms !== undefined && bedrooms !== '') {
       where.push(`beds = $${i++}`);
       params.push(Number(bedrooms));
+    }
+    if (isOpsAgent(req.user)) {
+      where.push(`id IN (SELECT unit_id FROM staff_unit_assignments WHERE staff_id = $${i++})`);
+      params.push(req.user.id);
     }
     // No listing_type = every unit (short- and long-term both take PMS reservations).
     if (listing_type && String(listing_type).toLowerCase() !== 'all') {
@@ -2107,6 +2124,9 @@ router.post(
     if (!b.unit_id || !b.check_in || !b.check_out || Number.isNaN(checkIn) || Number.isNaN(checkOut) || checkOut <= checkIn) {
       return res.status(400).json({ error: 'Unit, check-in, and check-out are required' });
     }
+    if (await blocksOpsAgentUnit(req.user, [b.unit_id])) {
+      return res.status(403).json({ error: OPS_UNIT_FORBIDDEN });
+    }
     const nights = Math.max(1, Math.round((checkOut - checkIn) / 86400000));
     const pricePerNight = parseFloat(b.price_per_night) || (nights > 0 ? (parseFloat(b.total_amount) || 0) / nights : 0);
     let wpPostId = null;
@@ -2428,6 +2448,9 @@ router.patch(
     const b = req.body;
     if (await blocksLongTermReservation(req.user, [existing.unit_id, b.unit_id])) {
       return res.status(403).json({ error: LONG_TERM_RESERVATION_FORBIDDEN });
+    }
+    if (await blocksOpsAgentUnit(req.user, [b.unit_id])) {
+      return res.status(403).json({ error: OPS_UNIT_FORBIDDEN });
     }
     if (req.user.role !== 'admin') {
       b.sales_person_id = req.user.id;
@@ -2911,6 +2934,10 @@ router.get('/reservations/schedule', async (req, res, next) => {
       unitWhere.push(`(project ILIKE $${i} OR compound ILIKE $${i})`);
       unitParams.push(project);
       i++;
+    }
+    if (isOpsAgent(req.user)) {
+      unitWhere.push(`id IN (SELECT unit_id FROM staff_unit_assignments WHERE staff_id = $${i++})`);
+      unitParams.push(req.user.id);
     }
 
     const { rows: unitRows } = await query(
