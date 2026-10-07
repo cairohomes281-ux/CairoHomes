@@ -1,4 +1,5 @@
-import { currency, formatDate, formatDateTime, nightsText, PAYMENT_METHOD_LABELS, unitDisplay } from './formatters';
+import { formatDate, formatDateTime, nightsText, PAYMENT_METHOD_LABELS, unitDisplay } from './formatters';
+import { reservationCurrencyCode, reservationMoney } from './reservationCurrency';
 
 function esc(value) {
   return String(value ?? '')
@@ -8,8 +9,8 @@ function esc(value) {
     .replace(/"/g, '&quot;');
 }
 
-function money(value) {
-  return esc(currency(value));
+function money(value, reservation) {
+  return esc(reservationMoney(value, reservation));
 }
 
 function buildBillTotals(reservation) {
@@ -47,7 +48,7 @@ function buildBillTotals(reservation) {
   };
 }
 
-function paymentRowsHtml(payments) {
+function paymentRowsHtml(payments, reservation) {
   const list = Array.isArray(payments) ? payments : [];
   if (!list.length) {
     return `<tr><td colspan="5" class="muted">No payments recorded</td></tr>`;
@@ -64,7 +65,7 @@ function paymentRowsHtml(payments) {
       return `<tr>
         <td>${esc(formatDate(when))}</td>
         <td>${esc(method)}</td>
-        <td class="num">${money(p.amount)}</td>
+        <td class="num">${money(p.amount, reservation)}</td>
         <td>${esc(status)}</td>
         <td>${esc(p.notes || '')}</td>
       </tr>`;
@@ -81,12 +82,12 @@ export function buildReservationReceiptHtml(reservation) {
   const lines = [
     bill.accommodation > 0 || bill.pricePerNight > 0
       ? `<tr><td>Accommodation${bill.nights ? ` (${esc(nightsText(bill.nights))})` : ''}${
-          bill.pricePerNight > 0 ? ` · ${money(bill.pricePerNight)}/night` : ''
-        }</td><td class="num">${money(bill.accommodation || bill.storedTotal)}</td></tr>`
-      : `<tr><td>Stay total</td><td class="num">${money(bill.storedTotal)}</td></tr>`,
+          bill.pricePerNight > 0 ? ` · ${money(bill.pricePerNight, reservation)}/night` : ''
+        }</td><td class="num">${money(bill.accommodation || bill.storedTotal, reservation)}</td></tr>`
+      : `<tr><td>Stay total</td><td class="num">${money(bill.storedTotal, reservation)}</td></tr>`,
   ];
-  if (bill.beachFees > 0) lines.push(`<tr><td>Beach access</td><td class="num">${money(bill.beachFees)}</td></tr>`);
-  if (bill.ins > 0) lines.push(`<tr><td>Insurance / deposit</td><td class="num">${money(bill.ins)}</td></tr>`);
+  if (bill.beachFees > 0) lines.push(`<tr><td>Beach access</td><td class="num">${money(bill.beachFees, reservation)}</td></tr>`);
+  if (bill.ins > 0) lines.push(`<tr><td>Insurance / deposit</td><td class="num">${money(bill.ins, reservation)}</td></tr>`);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -165,12 +166,12 @@ export function buildReservationReceiptHtml(reservation) {
 
     <h2>Charges</h2>
     <table class="totals">
-      <thead><tr><th>Description</th><th class="num">Amount (EGP)</th></tr></thead>
+      <thead><tr><th>Description</th><th class="num">Amount (${esc(reservationCurrencyCode(reservation))})</th></tr></thead>
       <tbody>${lines.join('')}</tbody>
       <tfoot>
-        <tr><td>Total</td><td class="num">${money(bill.total)}</td></tr>
-        <tr><td>Amount paid</td><td class="num">${money(bill.amountPaid)}</td></tr>
-        <tr><td>Balance due</td><td class="num">${money(bill.balance)}</td></tr>
+        <tr><td>Total</td><td class="num">${money(bill.total, reservation)}</td></tr>
+        <tr><td>Amount paid</td><td class="num">${money(bill.amountPaid, reservation)}</td></tr>
+        <tr><td>Balance due</td><td class="num">${money(bill.balance, reservation)}</td></tr>
       </tfoot>
     </table>
 
@@ -185,7 +186,7 @@ export function buildReservationReceiptHtml(reservation) {
           <th>Notes</th>
         </tr>
       </thead>
-      <tbody>${paymentRowsHtml(reservation.payments)}</tbody>
+      <tbody>${paymentRowsHtml(reservation.payments, reservation)}</tbody>
     </table>
 
     <div class="footer">

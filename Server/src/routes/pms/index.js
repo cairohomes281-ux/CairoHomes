@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { query, pool } = require('../../config/db');
+const { DEFAULT_USD_EGP_RATE, parseReservationCurrency } = require('../../lib/reservationCurrency');
 const { authStaff, requireRoles, requirePasswordChanged } = require('../../middleware/auth');
 const {
   upload,
@@ -1924,6 +1925,18 @@ const OTA_DETAILS_NEEDED_SQL = `(
   )
 )`;
 
+router.get('/reservations/usd-rate', async (_req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT exchange_rate::float AS rate FROM reservations
+       WHERE currency = 'USD' ORDER BY created_at DESC LIMIT 1`
+    );
+    res.json({ rate: rows[0]?.rate || DEFAULT_USD_EGP_RATE });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/reservations', async (req, res, next) => {
   try {
     const scope = reservationScopeClause(req.user, 'r', 1);
@@ -1999,6 +2012,7 @@ router.post(
     const forceSelf = !isAdmin(req.user);
     const salesPersonId = forceSelf ? req.user.id : b.sales_person_id || req.user.id;
     await assertAssignableSalesPerson(req.user, salesPersonId);
+    const money = parseReservationCurrency(b) || { currency: 'EGP', exchange_rate: 1 };
     const checkIn = new Date(b.check_in);
     const checkOut = new Date(b.check_out);
     if (!b.unit_id || !b.check_in || !b.check_out || Number.isNaN(checkIn) || Number.isNaN(checkOut) || checkOut <= checkIn) {
@@ -2146,10 +2160,10 @@ router.post(
          owner_collected_type, owner_collected_amount,
          payment_method, transfer_proof_path, transfer_proof_name,
          hold_expires_at, adults, children, nanny_count, sales_label,
-         beach_access_fees
+         beach_access_fees, currency, exchange_rate
        ) VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,0),$15,$16,$17,$18,$19,$20,$21,
-         $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35
+         $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37
        )
        RETURNING *`,
       [
@@ -2191,6 +2205,8 @@ router.post(
           return resolveSalesLabel(b.sales_label || b.sales_owner || '');
         })(),
         beachAccessFeesFinal,
+        money.currency,
+        money.exchange_rate,
       ]
     );
 
@@ -2328,6 +2344,7 @@ router.patch(
       b.sales_person_id = req.user.id;
     }
     await assertAssignableSalesPerson(req.user, b.sales_person_id);
+    const money = parseReservationCurrency(b);
     const checkIn = b.check_in || existing.check_in;
     const checkOut = b.check_out || existing.check_out;
     const ci = new Date(checkIn);
@@ -2378,6 +2395,8 @@ router.patch(
          children = COALESCE($28, children),
          nanny_count = COALESCE($29, nanny_count),
          beach_access_fees = COALESCE($30, beach_access_fees),
+         currency = COALESCE($32, currency),
+         exchange_rate = COALESCE($33, exchange_rate),
          updated_at = now()
        WHERE id = $31 RETURNING *`,
       [
@@ -2418,6 +2437,8 @@ router.patch(
           ? parseFloat(b.beach_access_fees) || 0
           : null,
         req.params.id,
+        money?.currency ?? null,
+        money?.exchange_rate ?? null,
       ]
     );
     try {

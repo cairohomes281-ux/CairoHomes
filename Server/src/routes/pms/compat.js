@@ -1686,6 +1686,8 @@ router.put(
       b.sales_person_id = req.user.id;
     }
     await assertAssignableSalesPerson(req.user, b.sales_person_id);
+    const { parseReservationCurrency } = require('../../lib/reservationCurrency');
+    const money = parseReservationCurrency(b);
     const checkIn = b.check_in || existing.check_in;
     const checkOut = b.check_out || existing.check_out;
     const ci = new Date(checkIn);
@@ -1773,6 +1775,8 @@ router.put(
          nanny_count = COALESCE($30, nanny_count),
          sales_label = COALESCE($31, sales_label),
          beach_access_fees = COALESCE($32, beach_access_fees),
+         currency = COALESCE($33, currency),
+         exchange_rate = COALESCE($34, exchange_rate),
          updated_at = now()
        WHERE id = $27 RETURNING *`,
       [
@@ -1819,6 +1823,8 @@ router.put(
         b.beach_access_fees != null && b.beach_access_fees !== ''
           ? parseFloat(b.beach_access_fees) || 0
           : null,
+        money?.currency ?? null,
+        money?.exchange_rate ?? null,
       ]
     );
     try {

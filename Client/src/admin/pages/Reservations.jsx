@@ -25,6 +25,15 @@ import { isoDateOnly } from '../../utils/stayNights';
 import { canonicalSalesName, namesAreAliases, reservationSalesDisplay } from '../utils/salesNameMatch';
 import AdminReservationDrawer from '../components/AdminReservationDrawer';
 import ManualReservationForm from '../components/ManualReservationForm';
+import ReservationCurrencyPicker from '../components/ReservationCurrencyPicker';
+import {
+  fromEgpFormValues,
+  reservationCurrencyCode,
+  reservationCurrencyError,
+  reservationMoney,
+  reservationRate,
+  toEgpPayload,
+} from '../utils/reservationCurrency';
 import TransferReservationModal from '../components/TransferReservationModal';
 import { ChannelBadge, ChannelTabs } from '../components/ReservationChannels';
 import WebsiteBookingRequests from '../components/WebsiteBookingRequests';
@@ -83,6 +92,8 @@ export const EMPTY_FORM = {
   broker_name: '',
   broker_amount_per_night: '',
   payment_method: 'cash',
+  currency: 'EGP',
+  exchange_rate: '',
 };
 const EMPTY_PMT = { amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', reference_number: '', notes: '' };
 
@@ -111,6 +122,7 @@ function reservationFullBill(r) {
 export function ReservationForm({ form, setForm, units, users, isNew, transferProof, onTransferProofChange, editId, allowPastDates, lockSalesPerson = false, currentUserName = '' }) {
   
   const selectedUnit = units.find(u => String(u.id) === String(form.unit_id));
+  const cur = form.currency === 'USD' ? 'USD' : 'EGP';
 
   useEffect(() => {
     if (selectedUnit && isNew && !form.price_per_night) {
@@ -235,32 +247,33 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
       
       <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 space-y-3">
         <h4 className="text-sm font-semibold text-blue-900">💰 Financial Details</h4>
+        <ReservationCurrencyPicker form={form} setForm={setForm} />
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <div>
-            <label className="label">Price per Night (EGP) *</label>
+            <label className="label">Price per Night ({cur}) *</label>
             <input type="number" min="0" step="0.01" className="input" value={form.price_per_night}
               onChange={e => setForm(f => ({ ...f, price_per_night: e.target.value }))} placeholder="0.00" />
           </div>
           <div>
-            <label className="label">Total Amount (EGP) <span className="text-blue-400 text-xs">(auto)</span></label>
+            <label className="label">Total Amount ({cur}) <span className="text-blue-400 text-xs">(auto)</span></label>
             <input type="number" min="0" step="0.01" className="input bg-blue-50" value={form.total_amount}
               onChange={e => setForm(f => ({ ...f, total_amount: e.target.value }))} placeholder="0.00" />
           </div>
           <div>
-            <label className="label">Down Payment collected by us (EGP)</label>
+            <label className="label">Down Payment collected by us ({cur})</label>
             <input type="number" min="0" step="0.01" className="input" value={form.down_payment}
               onChange={e => setForm(f => ({ ...f, down_payment: e.target.value }))} placeholder="0.00" />
           </div>
           <div>
-            <label className="label">Insurance (EGP)</label>
+            <label className="label">Insurance ({cur})</label>
             <input type="number" min="0" step="0.01" className="input" value={form.insurance}
               onChange={e => setForm(f => ({ ...f, insurance: e.target.value }))} placeholder="0.00" />
           </div>
           <div>
-            <label className="label">We Still Need to Collect (EGP)</label>
+            <label className="label">We Still Need to Collect ({cur})</label>
             <div className={`input font-semibold ${amountToPay > 0 ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
               {total > 0 || form.owner_collected_type === 'full'
-                ? `EGP ${amountToPay.toLocaleString('en-EG', { minimumFractionDigits: 2 })}`
+                ? `${cur} ${amountToPay.toLocaleString('en-EG', { minimumFractionDigits: 2 })}`
                 : '—'}
             </div>
           </div>
@@ -326,7 +339,7 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
                     onChange={e => setForm(f => ({ ...f, owner_collected_amount: e.target.value }))}
                     placeholder="0.00"
                   />
-                  <span className="text-sm text-amber-600">EGP</span>
+                  <span className="text-sm text-amber-600">{cur}</span>
                 </div>
               )}
 
@@ -336,9 +349,9 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
                   ? 'bg-green-100 text-green-800'
                   : 'bg-amber-100 text-amber-800'}`}>
                 {form.owner_collected_type === 'full'
-                  ? `✓ Owner collected full reservation amount.${ins > 0 ? ` We only collect insurance = EGP ${ins.toLocaleString('en-EG', { minimumFractionDigits: 2 })}.` : ''} Commission still charged on full total.`
+                  ? `✓ Owner collected full reservation amount.${ins > 0 ? ` We only collect insurance = ${cur} ${ins.toLocaleString('en-EG', { minimumFractionDigits: 2 })}.` : ''} Commission still charged on full total.`
                   : ownerCollectedAmt > 0
-                    ? `Owner collected EGP ${ownerCollectedAmt.toLocaleString('en-EG', { minimumFractionDigits: 2 })} — deducted from what we collect. Commission still charged on full total.`
+                    ? `Owner collected ${cur} ${ownerCollectedAmt.toLocaleString('en-EG', { minimumFractionDigits: 2 })} — deducted from what we collect. Commission still charged on full total.`
                     : 'Enter amount the owner collected from the tenant.'}
               </div>
             </div>
@@ -371,7 +384,7 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
               />
             </div>
             <div>
-              <label className="label text-xs text-purple-700">Broker Amount / Night (EGP)</label>
+              <label className="label text-xs text-purple-700">Broker Amount / Night ({cur})</label>
               <input
                 type="number" min="0" step="0.01"
                 className="input"
@@ -383,8 +396,8 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
           </div>
           {form.broker_amount_per_night > 0 && nights > 0 && (
             <div className="text-xs bg-purple-100 text-purple-800 rounded-lg px-3 py-2 space-y-1">
-              <div>🤝 Broker total: <strong>EGP {(parseFloat(form.broker_amount_per_night) * nights).toFixed(2)}</strong> ({nights} nights × EGP {form.broker_amount_per_night})</div>
-              <div>💰 Net price/night (after broker): <strong>EGP {(parseFloat(form.price_per_night || 0) - parseFloat(form.broker_amount_per_night)).toFixed(2)}</strong></div>
+              <div>🤝 Broker total: <strong>{cur} {(parseFloat(form.broker_amount_per_night) * nights).toFixed(2)}</strong> ({nights} nights × {cur} {form.broker_amount_per_night})</div>
+              <div>💰 Net price/night (after broker): <strong>{cur} {(parseFloat(form.price_per_night || 0) - parseFloat(form.broker_amount_per_night)).toFixed(2)}</strong></div>
             </div>
           )}
         </div>
@@ -460,11 +473,17 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
   );
 }
 
-function PaymentForm({ form, setForm, onFileChange }) {
+function PaymentForm({ form, setForm, onFileChange, currencyCode = 'EGP', rate = 1 }) {
   return (
     <div className="space-y-4">
       <div className="form-grid">
-        <div><label className="label">Amount (EGP) *</label><input type="number" min="0" step="0.01" className="input" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" /></div>
+        <div>
+          <label className="label">Amount ({currencyCode}) *</label>
+          <input type="number" min="0" step="0.01" className="input" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
+          {currencyCode === 'USD' && Number(form.amount) > 0 && (
+            <p className="mt-1 text-xs text-gray-500">≈ {currency(Number(form.amount) * rate)} saved for finance</p>
+          )}
+        </div>
         <div><label className="label">Date *</label><input type="date" className="input" value={form.payment_date} onChange={e => setForm(f => ({ ...f, payment_date: e.target.value }))} /></div>
         <div>
           <label className="label">Method *</label>
@@ -513,6 +532,7 @@ function ReservationDetail({
   ownerExperienceView = false,
 }) {
   if (!reservation) return null;
+  const money = (value) => reservationMoney(value, reservation);
   const nights = Number(reservation.nights) || 0;
   const pricePerNight = parseFloat(reservation.price_per_night) || 0;
   const accommodation =
@@ -570,19 +590,19 @@ function ReservationDetail({
             <InfoRow label="Check-out" value={formatDate(reservation.check_out)} />
             <InfoRow
               label="Price/Night"
-              value={reservation.price_per_night > 0 ? currency(reservation.price_per_night) : '—'}
+              value={reservation.price_per_night > 0 ? money(reservation.price_per_night) : '—'}
             />
             <InfoRow
               label="Owner collected"
               value={
                 reservation.owner_collected_type
                   ? `${reservation.owner_collected_type}${
-                      ownerAmt > 0 ? ` · ${currency(ownerAmt)}` : ''
+                      ownerAmt > 0 ? ` · ${money(ownerAmt)}` : ''
                     }`
                   : '—'
               }
             />
-            <InfoRow label="Insurance" value={currency(reservation.insurance)} />
+            <InfoRow label="Insurance" value={money(reservation.insurance)} />
           </div>
         </div>
       </div>
@@ -652,24 +672,30 @@ function ReservationDetail({
           <InfoRow label="Check-in" value={formatDate(reservation.check_in)} />
           <InfoRow label="Check-out" value={formatDate(reservation.check_out)} />
           <InfoRow label="Nights" value={nightsText(reservation.nights)} />
-          <InfoRow label="Price/Night" value={reservation.price_per_night > 0 ? currency(reservation.price_per_night) : '—'} />
+          {reservationCurrencyCode(reservation) === 'USD' && (
+            <InfoRow
+              label="Currency"
+              value={`USD · 1 USD = EGP ${reservationRate(reservation)} · ${currency(total)} total`}
+            />
+          )}
+          <InfoRow label="Price/Night" value={reservation.price_per_night > 0 ? money(reservation.price_per_night) : '—'} />
           <InfoRow
             label="Accommodation"
-            value={accommodation > 0 ? currency(accommodation) : currency(storedTotal)}
+            value={accommodation > 0 ? money(accommodation) : money(storedTotal)}
           />
-          <InfoRow label="Total (full bill)" value={currency(total)} bold />
-          <InfoRow label="Down Payment" value={currency(downPmt)} />
+          <InfoRow label="Total (full bill)" value={money(total)} bold />
+          <InfoRow label="Down Payment" value={money(downPmt)} />
           <InfoRow
             label="Amt to Pay"
-            value={currency(
+            value={money(
               reservation.amount_to_pay != null
                 ? reservation.amount_to_pay
                 : Math.max(0, total - (parseFloat(reservation.amount_paid) || 0))
             )}
             bold
           />
-          <InfoRow label="Beach Pass" value={currency(reservation.beach_access_fees)} />
-          <InfoRow label="Insurance" value={currency(reservation.insurance)} />
+          <InfoRow label="Beach Pass" value={money(reservation.beach_access_fees)} />
+          <InfoRow label="Insurance" value={money(reservation.insurance)} />
           <InfoRow label="Payment Status" value={reservation.payment_status} />
           <InfoRow label="Status" value={reservation.status} />
         </div>
@@ -685,35 +711,35 @@ function ReservationDetail({
               🏠 Owner collected ({reservation.owner_collected_type === 'full' ? 'full payment' : 'down payment'})
             </span>
             <span className={`font-semibold ${reservation.owner_collected_type === 'full' ? 'text-green-700' : 'text-amber-700'}`}>
-              {currency(reservation.owner_collected_amount)}
+              {money(reservation.owner_collected_amount)}
             </span>
           </div>
         )}
         <div className="flex justify-between">
           <span className="text-gray-500">We Need to Collect</span>
-          <span className={`font-semibold ${amountToPay > 0 ? 'text-red-600' : 'text-green-600'}`}>{currency(amountToPay)}</span>
+          <span className={`font-semibold ${amountToPay > 0 ? 'text-red-600' : 'text-green-600'}`}>{money(amountToPay)}</span>
         </div>
         {Number(reservation.beach_access_fees) > 0 && (
-          <div className="flex justify-between"><span className="text-gray-500">Beach Pass</span><span>{currency(reservation.beach_access_fees)}</span></div>
+          <div className="flex justify-between"><span className="text-gray-500">Beach Pass</span><span>{money(reservation.beach_access_fees)}</span></div>
         )}
         {reservation.insurance > 0 && (
-          <div className="flex justify-between"><span className="text-gray-500">Insurance</span><span>{currency(reservation.insurance)}</span></div>
+          <div className="flex justify-between"><span className="text-gray-500">Insurance</span><span>{money(reservation.insurance)}</span></div>
         )}
         {fin.brokerDeduction > 0 && (
           <div className="flex justify-between">
             <span className="text-gray-500">Broker{reservation.broker_name ? ` (${reservation.broker_name})` : ''}</span>
-            <span className="text-purple-600">− {currency(fin.brokerDeduction)}</span>
+            <span className="text-purple-600">− {money(fin.brokerDeduction)}</span>
           </div>
         )}
         {showOwnerNet && (
           <div className="flex justify-between border-t border-gray-200 pt-1.5">
             <span className="text-gray-500 font-medium">Owner Net</span>
-            <span className="font-semibold text-primary-700">{currency(fin.ownerNet)}</span>
+            <span className="font-semibold text-primary-700">{money(fin.ownerNet)}</span>
           </div>
         )}
         <div className={`flex justify-between ${showOwnerNet ? '' : 'border-t border-gray-200 pt-1.5'}`}>
           <span className="text-gray-500">Amount Paid</span>
-          <span className="font-semibold text-green-600">{currency(reservation.amount_paid)}</span>
+          <span className="font-semibold text-green-600">{money(reservation.amount_paid)}</span>
         </div>
       </div>
 
@@ -820,7 +846,7 @@ function ReservationDetail({
               <div key={p.id} className="bg-gray-50 rounded-lg px-3 py-2 text-sm">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="font-medium">{currency(p.amount)}</span>
+                    <span className="font-medium">{money(p.amount)}</span>
                     <span className="text-gray-400 mx-2">·</span>
                     <span className="text-gray-600">{PAYMENT_METHOD_LABELS[p.payment_method]}</span>
                     {p.reference_number && <span className="text-gray-400 ml-2">#{p.reference_number}</span>}
@@ -858,7 +884,7 @@ function ReservationDetail({
             {reservation.commissions.map((c, i) => (
               <div key={i} className="flex items-center justify-between text-sm bg-yellow-50 rounded-lg px-3 py-2">
                 <span className="text-gray-700">{c.full_name} — <span className="capitalize">{c.commission_type.replace(/_/g, ' ')}</span></span>
-                <span className="font-medium text-yellow-700">{c.percentage}% = {currency(c.amount)}</span>
+                <span className="font-medium text-yellow-700">{c.percentage}% = {money(c.amount)}</span>
               </div>
             ))}
           </div>
@@ -1252,7 +1278,7 @@ export default function Reservations() {
     setModal('drawer');
   };
   const openEdit = (r) => {
-    setForm({
+    setForm(fromEgpFormValues({
       unit_id: r.unit_id, guest_name: r.guest_name, guest_email: r.guest_email || '',
       guest_phone: r.guest_phone || '', guest_nationality: r.guest_nationality || '',
       adults: r.adults != null ? String(r.adults) : '2',
@@ -1272,7 +1298,7 @@ export default function Reservations() {
       beach_access_fees: r.beach_access_fees != null ? String(r.beach_access_fees) : '',
       broker_name: r.broker_name || '',
       broker_amount_per_night: r.broker_amount_per_night != null ? String(r.broker_amount_per_night) : '',
-    });
+    }, r));
     setEditId(r.id); setModal('form');
   };
 
@@ -1286,8 +1312,10 @@ export default function Reservations() {
     const nannyCount = Math.max(0, parseInt(form.nanny_count, 10) || 0);
     if (!form.is_owner_reservation && adults < 1)
       return toast.error('At least 1 adult is required');
+    const currencyError = reservationCurrencyError(form);
+    if (currencyError) return toast.error(currencyError);
     const payload = {
-      ...form,
+      ...toEgpPayload(form),
       adults,
       children,
       nanny_count: nannyCount,
@@ -1346,7 +1374,11 @@ export default function Reservations() {
   const handlePmtSave = () => {
     const fd = new FormData();
     fd.append('reservation_id', viewRes);
-    Object.entries(pmtForm).forEach(([k, v]) => { if (v !== '' && v !== null && v !== undefined) fd.append(k, v); });
+    const rate = reservationRate(viewDetail);
+    Object.entries(pmtForm).forEach(([k, v]) => {
+      if (v === '' || v === null || v === undefined) return;
+      fd.append(k, k === 'amount' ? String(Math.round(Number(v) * rate * 100) / 100) : v);
+    });
     if (pmtFile) fd.append('document', pmtFile);
     pmtMutation.mutate(fd);
   };
@@ -1707,29 +1739,29 @@ export default function Reservations() {
                       <td className="text-gray-600 whitespace-nowrap">{r.guest_phone || '—'}</td>
                       <td className="whitespace-nowrap"><ChannelBadge reservation={r} /></td>
                       <td className="text-center whitespace-nowrap">{r.nights ?? '—'}</td>
-                      <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(r.price_per_night)}</td>
+                      <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{reservationMoney(r.price_per_night, r)}</td>
                       {isOwnersRelations ? (
                         <>
                           <td className="whitespace-nowrap text-gray-700">
                             {r.owner_collected_type
                               ? `${r.owner_collected_type}${
                                   Number(r.owner_collected_amount) > 0
-                                    ? ` · ${currency(r.owner_collected_amount)}`
+                                    ? ` · ${reservationMoney(r.owner_collected_amount, r)}`
                                     : ''
                                 }`
                               : '—'}
                           </td>
-                          <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(r.insurance)}</td>
+                          <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{reservationMoney(r.insurance, r)}</td>
                         </>
                       ) : (
                         <>
-                      <td className={`text-right whitespace-nowrap font-medium ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(total)}</td>
-                      <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(down)}</td>
+                      <td className={`text-right whitespace-nowrap font-medium ${isCancelled ? 'line-through opacity-60' : ''}`}>{reservationMoney(total, r)}</td>
+                      <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{reservationMoney(down, r)}</td>
                       <td className={`text-right font-medium whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : amtToPay > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {currency(isCancelled ? 0 : amtToPay)}
+                        {reservationMoney(isCancelled ? 0 : amtToPay, r)}
                       </td>
-                      <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(r.beach_access_fees)}</td>
-                      <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{currency(r.insurance)}</td>
+                      <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{reservationMoney(r.beach_access_fees, r)}</td>
+                      <td className={`text-right whitespace-nowrap ${isCancelled ? 'line-through opacity-60' : ''}`}>{reservationMoney(r.insurance, r)}</td>
                       <td className="whitespace-nowrap"><Badge status={isCancelled ? 'cancelled' : payLabel === 'unpaid' ? 'pending' : payLabel} />
                         <div className="text-[10px] text-gray-400 mt-0.5">{isCancelled ? 'cancelled' : payLabel}</div>
                       </td>
@@ -2043,7 +2075,13 @@ export default function Reservations() {
           </button>
         </>}
       >
-        <PaymentForm form={pmtForm} setForm={setPmtForm} onFileChange={setPmtFile} />
+        <PaymentForm
+          form={pmtForm}
+          setForm={setPmtForm}
+          onFileChange={setPmtFile}
+          currencyCode={reservationCurrencyCode(viewDetail)}
+          rate={reservationRate(viewDetail)}
+        />
       </Modal>
 
       <ConfirmDialog open={!!cancelId} onClose={() => setCancelId(null)}

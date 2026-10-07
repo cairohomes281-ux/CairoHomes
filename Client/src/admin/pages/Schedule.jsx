@@ -15,6 +15,7 @@ import AdminReservationDrawer from '../components/AdminReservationDrawer';
 import ManualReservationForm, {
   EMPTY_MANUAL_RESERVATION_FORM,
 } from '../components/ManualReservationForm';
+import { reservationCurrencyError, toEgpPayload } from '../utils/reservationCurrency';
 import TransferReservationModal from '../components/TransferReservationModal';
 import { useAuth } from '../context/AuthContext';
 import { isoDateOnly } from '../../utils/stayNights';
@@ -1181,8 +1182,10 @@ export default function Schedule() {
     if (!createForm.is_owner_reservation && adults < 1) {
       return toast.error('At least 1 adult is required');
     }
+    const currencyError = reservationCurrencyError(createForm);
+    if (currencyError) return toast.error(currencyError);
     const payload = {
-      ...createForm,
+      ...toEgpPayload(createForm),
       adults,
       children,
       nanny_count: nannyCount,

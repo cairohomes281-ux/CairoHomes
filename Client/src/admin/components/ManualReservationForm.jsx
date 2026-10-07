@@ -19,6 +19,7 @@ import {
   unitSelectLabel,
 } from '../utils/formatters';
 import { occupancyFromRanges } from '../../utils/stayNights';
+import ReservationCurrencyPicker from './ReservationCurrencyPicker';
 
 const money = (value) =>
   `EGP ${Number(value || 0).toLocaleString('en-EG', {
@@ -54,6 +55,8 @@ export const EMPTY_MANUAL_RESERVATION_FORM = {
   broker_name: '',
   broker_amount_per_night: '',
   payment_method: 'cash',
+  currency: 'EGP',
+  exchange_rate: '',
 };
 
 function Label({ children }) {
@@ -144,13 +147,22 @@ export default function ManualReservationForm({
     beachFeeInfo.beach?.billing === 'flat' ||
     beachFeeInfo.beach?.mode === 'flat' ||
     beachFeeInfo.beach?.mode === 'free';
+  const currencyCode = form.currency === 'USD' ? 'USD' : 'EGP';
+  const usdRate = currencyCode === 'USD' ? Number(form.exchange_rate) || 0 : 1;
+  const formMoney = (value) =>
+    `${currencyCode} ${Number(value || 0).toLocaleString('en-EG', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })}`;
+  // Beach access is priced in EGP; show it in the reservation currency.
+  const beachInCurrency = usdRate > 0 ? beachAccessFees / usdRate : 0;
   const total = Number(form.total_amount) || 0;
   const downPayment = Number(form.down_payment) || 0;
   const insurance = Number(form.insurance) || 0;
   const ownerCollected = Number(form.owner_collected_amount) || 0;
   const brokerPerNight = Number(form.broker_amount_per_night) || 0;
   const brokerTotal = brokerPerNight * nights;
-  const fullBill = Math.round((total + beachAccessFees + insurance) * 100) / 100;
+  const fullBill = Math.round((total + beachInCurrency + insurance) * 100) / 100;
   let toCollect = fullBill - downPayment;
   if (form.owner_collected_type === 'full') toCollect = insurance - downPayment;
   if (form.owner_collected_type === 'partial') toCollect = fullBill - ownerCollected - downPayment;
@@ -259,6 +271,13 @@ export default function ManualReservationForm({
             )}
           </div>
 
+          <ReservationCurrencyPicker
+            form={form}
+            setForm={setForm}
+            inputClass={fieldClass}
+            labelClass="mb-1.5 block text-[11.5px] font-bold uppercase tracking-wider text-[#5b6b80]"
+          />
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <Label>Nights</Label>
@@ -267,7 +286,7 @@ export default function ManualReservationForm({
               </div>
             </div>
             <div>
-              <Label>Price / night <span className="text-[#ff7a59]">*</span></Label>
+              <Label>Price / night ({currencyCode}) <span className="text-[#ff7a59]">*</span></Label>
               <input
                 type="number"
                 min="0"
@@ -275,11 +294,11 @@ export default function ManualReservationForm({
                 value={form.price_per_night}
                 onChange={(e) => setPricePerNight(e.target.value)}
                 className={fieldClass}
-                placeholder="EGP"
+                placeholder={currencyCode}
               />
             </div>
             <div>
-              <Label>Total (EGP) <span className="text-[#ff7a59]">*</span></Label>
+              <Label>Total ({currencyCode}) <span className="text-[#ff7a59]">*</span></Label>
               <input
                 type="number"
                 min="0"
@@ -287,7 +306,7 @@ export default function ManualReservationForm({
                 value={form.total_amount}
                 onChange={(e) => setTotalAmount(e.target.value)}
                 className={fieldClass}
-                placeholder="EGP"
+                placeholder={currencyCode}
               />
             </div>
           </div>
@@ -405,7 +424,11 @@ export default function ManualReservationForm({
             <div className="rounded-[10px] border border-[#e6ebf2] bg-white px-3 py-2.5 text-xs text-[#5b6b80]">
               <div className="flex items-center justify-between gap-3">
                 <span className="font-semibold text-[#0f1c2e]">Beach access</span>
-                <strong className="tabular-nums text-[#0f1c2e]">{money(beachAccessFees)}</strong>
+                <strong className="tabular-nums text-[#0f1c2e]">
+                  {currencyCode === 'USD'
+                    ? `${formMoney(beachInCurrency)} (${money(beachAccessFees)})`
+                    : money(beachAccessFees)}
+                </strong>
               </div>
               <p className="mt-1.5 leading-5">
                 {beachIsFlat
@@ -504,7 +527,7 @@ export default function ManualReservationForm({
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <Label>Down payment</Label>
+              <Label>Down payment ({currencyCode})</Label>
               <input
                 type="number"
                 min="0"
@@ -517,7 +540,7 @@ export default function ManualReservationForm({
               />
             </div>
             <div>
-              <Label>Insurance</Label>
+              <Label>Insurance ({currencyCode})</Label>
               <input
                 type="number"
                 min="0"
@@ -544,7 +567,7 @@ export default function ManualReservationForm({
               />
             </div>
             <div>
-              <Label>Broker amount / night</Label>
+              <Label>Broker amount / night ({currencyCode})</Label>
               <input
                 type="number"
                 min="0"
@@ -561,9 +584,9 @@ export default function ManualReservationForm({
 
           {brokerPerNight > 0 && (
             <p className="rounded-[10px] bg-[#faf5ff] px-3 py-2 text-[12.5px] text-purple-800">
-              Broker total: <strong>{nights ? money(brokerTotal) : 'select dates'}</strong>
+              Broker total: <strong>{nights ? formMoney(brokerTotal) : 'select dates'}</strong>
               {nights > 0 && (
-                <> · Net nightly rate after broker: <strong>{money(Math.max(0, Number(form.price_per_night) - brokerPerNight))}</strong></>
+                <> · Net nightly rate after broker: <strong>{formMoney(Math.max(0, Number(form.price_per_night) - brokerPerNight))}</strong></>
               )}
             </p>
           )}
@@ -601,7 +624,7 @@ export default function ManualReservationForm({
                 </div>
                 {form.owner_collected_type === 'partial' && (
                   <div>
-                    <Label>Amount collected</Label>
+                    <Label>Amount collected ({currencyCode})</Label>
                     <input
                       type="number"
                       min="0"
@@ -648,7 +671,7 @@ export default function ManualReservationForm({
           <div className="rounded-[10px] border border-[#e6ebf2] bg-[#f6f8fb] p-3 text-sm">
             <div className="flex justify-between py-1">
               <span className="text-[#5b6b80]">Accommodation ({nights || '—'} nights)</span>
-              <strong className="text-[#0f1c2e]">{nights ? money(total) : '—'}</strong>
+              <strong className="text-[#0f1c2e]">{nights ? formMoney(total) : '—'}</strong>
             </div>
             {beachAccessFees > 0 && (
               <div className="flex justify-between py-1">
@@ -656,29 +679,34 @@ export default function ManualReservationForm({
                   Beach access
                   {!beachIsFlat && childrenCount > 0 ? ' (incl. extra guests)' : ''}
                 </span>
-                <strong className="text-[#0f1c2e]">{money(beachAccessFees)}</strong>
+                <strong className="text-[#0f1c2e]">{formMoney(beachInCurrency)}</strong>
               </div>
             )}
             {insurance > 0 && (
               <div className="flex justify-between py-1">
                 <span className="text-[#5b6b80]">Insurance</span>
-                <strong className="text-[#0f1c2e]">{money(insurance)}</strong>
+                <strong className="text-[#0f1c2e]">{formMoney(insurance)}</strong>
               </div>
             )}
             <div className="flex justify-between py-1 border-t border-[#e6ebf2] mt-1 pt-2">
               <span className="font-semibold text-[#0f1c2e]">Full bill total</span>
-              <strong className="text-[#0f1c2e]">{money(fullBill)}</strong>
+              <strong className="text-[#0f1c2e]">{formMoney(fullBill)}</strong>
             </div>
             {downPayment > 0 && (
               <div className="flex justify-between py-1">
                 <span className="text-[#5b6b80]">Down payment</span>
-                <strong className="text-[#0f7d3a]">− {money(downPayment)}</strong>
+                <strong className="text-[#0f7d3a]">− {formMoney(downPayment)}</strong>
               </div>
             )}
             <div className="mt-2 flex justify-between border-t border-[#e6ebf2] pt-3">
               <span className="font-semibold text-[#0f1c2e]">Still to collect</span>
-              <strong className="text-base text-[#1e5fbf]">{money(toCollect)}</strong>
+              <strong className="text-base text-[#1e5fbf]">{formMoney(toCollect)}</strong>
             </div>
+            {currencyCode === 'USD' && usdRate > 0 && fullBill > 0 && (
+              <p className="mt-2 text-right text-xs text-[#5b6b80]">
+                ≈ {money(fullBill * usdRate)} at {usdRate} EGP / USD
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-3 pt-2">
