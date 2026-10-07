@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, CalendarRange, Edit2, X, DollarSign, Eye, ExternalLink, Clock, Hourglass, Trash2, Plus, Ban } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarRange, Edit2, X, DollarSign, Eye, ExternalLink, Clock, Hourglass, Trash2, Plus, Ban, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
@@ -879,6 +879,8 @@ export default function Schedule() {
 
   
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [guestSearch, setGuestSearch] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
 
   
   const [holdModal,         setHoldModal]         = useState(false);
@@ -1663,6 +1665,53 @@ export default function Schedule() {
     [displayDates]
   );
 
+  const occupiedNights = useMemo(() => {
+    const dates = displayDates.map(isoDate);
+    const occ = {};
+    for (const r of allReservations) {
+      if (String(r.status || '').toLowerCase() === 'cancelled') continue;
+      const ci = normDate(r.check_in);
+      const co = normDate(r.check_out);
+      for (const d of dates) {
+        if (d >= ci && d < co) (occ[r.unit_id] ||= new Set()).add(d);
+      }
+    }
+    return occ;
+  }, [allReservations, displayDates]);
+  const freeCount = (units, d) =>
+    units.reduce((n, u) => n + (!occupiedNights[u.id]?.has(d) && !blockMap[u.id]?.[d] ? 1 : 0), 0);
+
+  const guestQuery = guestSearch.trim().toLowerCase();
+  const guestDigits = guestQuery.replace(/\D/g, '');
+  const matchesGuest = (r) =>
+    String(r.guest_name || '').toLowerCase().includes(guestQuery) ||
+    (guestDigits.length >= 3 && String(r.guest_phone || '').replace(/\D/g, '').includes(guestDigits));
+  const barClassFor = (r) =>
+    `${rackBarClass(r, TODAY)}${guestQuery && !matchesGuest(r) ? ' rack-bar--dim' : ''}`;
+
+  const unitGroups = (() => {
+    const rows = guestQuery
+      ? filteredUnits.filter((u) => allReservations.some((r) => r.unit_id === u.id && matchesGuest(r)))
+      : filteredUnits;
+    const map = new Map();
+    for (const u of rows) {
+      const key = u.project || u.compound || 'Other';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(u);
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, units]) => ({ name, units }));
+  })();
+  const visibleUnitCount = unitGroups.reduce((n, g) => n + g.units.length, 0);
+  const toggleGroup = (name) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
   const rangeLabel =
     filterFrom || filterTo
       ? `${formatDate(fromStr)} — ${filterTo ? formatDate(filterTo) : formatDate(addDays(toStr, -1))}`
@@ -1774,6 +1823,17 @@ export default function Schedule() {
           >
             Filters{hasFilters ? ' •' : ''}
           </button>
+          <span className="rack-sep" />
+          <label className="rack-search">
+            <Search />
+            <input
+              type="search"
+              value={guestSearch}
+              onChange={(e) => setGuestSearch(e.target.value)}
+              placeholder="Find guest or phone"
+              aria-label="Find guest by name or phone"
+            />
+          </label>
         </div>
 
         <fieldset className={`rack-group relative z-40 ${filtersOpen ? '' : 'hidden lg:block'}`}>
@@ -1995,8 +2055,14 @@ export default function Schedule() {
           <div className="rack-sheet relative z-0">
             <table
               className="rack-table"
-              style={{ minWidth: `calc(var(--rack-head-w) + ${displayDates.length} * var(--rack-cell-w))` }}
+              style={{ width: `calc(var(--rack-head-w) + ${displayDates.length} * var(--rack-cell-w))` }}
             >
+              <colgroup>
+                <col style={{ width: 'var(--rack-head-w)' }} />
+                {displayDates.map((d) => (
+                  <col key={isoDate(d)} style={{ width: CELL_W }} />
+                ))}
+              </colgroup>
               <thead className="sticky top-0 z-30">
                 <tr className="rack-month">
                   <th rowSpan={2} className="rack-rowhead sticky left-0 z-40 align-bottom">
@@ -2032,9 +2098,54 @@ export default function Schedule() {
                     );
                   })}
                 </tr>
+                <tr className="rack-avail">
+                  <th className="rack-rowhead sticky left-0 z-40">
+                    <div className="rack-rowhead-inner">
+                      <span className="rack-col-code">Free units</span>
+                    </div>
+                  </th>
+                  {displayDates.map((d) => {
+                    const dStr = isoDate(d);
+                    const free = freeCount(filteredUnits, dStr);
+                    const total = filteredUnits.length;
+                    const occPct = total ? Math.round(((total - free) / total) * 100) : 0;
+                    return (
+                      <th
+                        key={dStr}
+                        className={free === 0 && total ? 'rack-free--full' : ''}
+                        title={`${formatDate(dStr)} · ${free} of ${total} free · ${occPct}% occupied`}
+                      >
+                        {free}
+                      </th>
+                    );
+                  })}
+                </tr>
               </thead>
               <tbody>
-                {filteredUnits.map((unit) => {
+                {unitGroups.map((g) => [
+                  <tr key={`grp-${g.name}`} className="rack-group-row">
+                    <td className="rack-rowhead sticky left-0 z-10">
+                      <button type="button" className="rack-group-toggle" onClick={() => toggleGroup(g.name)}>
+                        <ChevronRight className={collapsedGroups.has(g.name) ? '' : 'rotate-90'} />
+                        <span className="truncate">{g.name}</span>
+                        <span className="rack-group-count">{g.units.length}</span>
+                      </button>
+                    </td>
+                    {displayDates.map((d) => {
+                      const dStr = isoDate(d);
+                      const free = freeCount(g.units, dStr);
+                      return (
+                        <td
+                          key={dStr}
+                          className={`rack-free ${free === 0 ? 'rack-free--full' : ''}`}
+                          title={`${g.name} · ${formatDate(dStr)} · ${free} of ${g.units.length} free`}
+                        >
+                          {free}
+                        </td>
+                      );
+                    })}
+                  </tr>,
+                  ...(collapsedGroups.has(g.name) ? [] : g.units).map((unit) => {
                   const cells = buildRow(unit.id, displayDates, allReservations);
                   const name = unit.name || unit.title || '';
                   return (
@@ -2181,8 +2292,8 @@ export default function Schedule() {
                         }
 
                         if (cell.type === 'turnover') {
-                          const outCls = rackBarClass(cell.outRes, TODAY);
-                          const inCls = rackBarClass(cell.inRes, TODAY);
+                          const outCls = barClassFor(cell.outRes);
+                          const inCls = barClassFor(cell.inRes);
                           return (
                             <td
                               key={j}
@@ -2207,7 +2318,7 @@ export default function Schedule() {
                           );
                         }
 
-                        const barCls = rackBarClass(cell.res, TODAY);
+                        const barCls = barClassFor(cell.res);
                         const tipText = rackTip(cell.res);
 
                         if (cell.type === 'checkin' || cell.type === 'checkout') {
@@ -2296,12 +2407,17 @@ export default function Schedule() {
                       })}
                     </tr>
                   );
-                })}
-                {filteredUnits.length === 0 && (
+                }),
+                ])}
+                {visibleUnitCount === 0 && (
                   <tr>
                     <td colSpan={displayDates.length + 1} className="px-6 py-16 text-center">
                       <p className="font-bold">
-                        {(data?.units || []).length === 0 ? 'No units yet' : 'No matching units'}
+                        {(data?.units || []).length === 0
+                          ? 'No units yet'
+                          : guestQuery
+                            ? `No guest matching “${guestSearch.trim()}” in these dates`
+                            : 'No matching units'}
                       </p>
                       <p className="mt-1 text-[#555]">
                         {(data?.units || []).length === 0
