@@ -13,7 +13,7 @@
   --rack-cell-w: 46px;
   --rack-row-h: 38px;
   --rack-bar-h: 26px;
-  --rack-head-w: 108px;
+  --rack-head-w: 132px;
   --rack-btn-h: 38px;
   font-family: 'Segoe UI', Aptos, Calibri, system-ui, -apple-system, Roboto, sans-serif;
   font-size: 12px;
@@ -24,7 +24,7 @@
     --rack-cell-w: 46px;
     --rack-row-h: 28px;
     --rack-bar-h: 20px;
-    --rack-head-w: 252px;
+    --rack-head-w: 302px;
     --rack-btn-h: 30px;
   }
 }
@@ -300,7 +300,7 @@
 @media (min-width: 640px) {
   .rack-rowhead-inner > .rack-col-name,
   .rack-rowhead-inner > .rack-col-br { display: flex; }
-  .rack-col-code { width: 64px; flex-direction: row; align-items: center !important; justify-content: flex-start; }
+  .rack-col-code { width: 114px; flex-direction: row; align-items: center !important; justify-content: flex-start; }
   .rack-subname { display: none; }
 }
 .rack-table tbody tr:hover .rack-rowhead { background: #e6efe9 !important; }
