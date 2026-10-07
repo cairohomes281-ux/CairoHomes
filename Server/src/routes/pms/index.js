@@ -1916,6 +1916,14 @@ router.put('/daily-prices/:unitId', requireRoles('admin'), async (req, res, next
 });
 
 
+const OTA_DETAILS_NEEDED_SQL = `(
+  r.ota_event_uid IS NOT NULL AND r.status <> 'cancelled' AND (
+    COALESCE(r.total_amount, 0) <= 0
+    OR NULLIF(btrim(COALESCE(r.guest_phone, '')), '') IS NULL
+    OR r.guest_name IN ('Airbnb guest', 'Booking.com guest')
+  )
+)`;
+
 router.get('/reservations', async (req, res, next) => {
   try {
     const scope = reservationScopeClause(req.user, 'r', 1);
@@ -1928,7 +1936,8 @@ router.get('/reservations', async (req, res, next) => {
               u.compound AS project,
               creator.full_name AS created_by_name,
               su.full_name AS sales_person_name,
-              COALESCE(r.id_photo_urls, '{}'::text[]) AS id_photo_urls
+              COALESCE(r.id_photo_urls, '{}'::text[]) AS id_photo_urls,
+              ${OTA_DETAILS_NEEDED_SQL} AS ota_details_needed
        FROM reservations r
        LEFT JOIN units u ON u.id = r.unit_id
        LEFT JOIN bookings b ON b.id = r.booking_id
@@ -2954,7 +2963,8 @@ router.get('/reservations/:id', async (req, res, next) => {
               su.full_name AS sales_person_name,
               creator.full_name AS created_by_name,
               b.notes AS booking_notes,
-              COALESCE(r.id_photo_urls, '{}'::text[]) AS id_photo_urls
+              COALESCE(r.id_photo_urls, '{}'::text[]) AS id_photo_urls,
+              ${OTA_DETAILS_NEEDED_SQL} AS ota_details_needed
        FROM reservations r
        LEFT JOIN units u ON u.id = r.unit_id
        LEFT JOIN bookings b ON b.id = r.booking_id

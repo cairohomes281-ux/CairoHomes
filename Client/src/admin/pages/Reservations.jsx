@@ -593,6 +593,12 @@ function ReservationDetail({
 
   return (
     <div className="space-y-5">
+      {reservation.ota_details_needed && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Imported automatically from the {reservation.booking_source || 'platform'} calendar. Edit this reservation to
+          add the guest name, phone number and the amount paid.
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div className="space-y-2">
           <InfoRow
@@ -618,6 +624,12 @@ function ReservationDetail({
               .join(' · ') || '—'}
           />
           <InfoRow label="Source" value={reservation.booking_source} />
+          {reservation.ota_reservation_code && (
+            <InfoRow label="Platform code" value={reservation.ota_reservation_code} />
+          )}
+          {reservation.ota_phone_last4 && (
+            <InfoRow label="Phone (last 4)" value={`•••• ${reservation.ota_phone_last4}`} />
+          )}
           <InfoRow
             label="Sales / Owner"
             value={reservationSalesDisplay(reservation, users)}
@@ -1027,6 +1039,7 @@ export default function Reservations() {
   const [filterCheckOutFrom, setFilterCheckOutFrom] = useState('');
   const [filterCheckOutTo,   setFilterCheckOutTo]   = useState('');
   const [filterSalesName,    setFilterSalesName]    = useState('');
+  const [filterNeedsDetails, setFilterNeedsDetails] = useState(false);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editId, setEditId] = useState(null);
@@ -1358,11 +1371,14 @@ export default function Reservations() {
     return [...names].sort((a, b) => a.localeCompare(b)).map((name) => ({ value: name, label: name }));
   }, [users, reservations]);
 
+  const otaDetailsNeededCount = reservations.filter((r) => r.ota_details_needed).length;
+
   const matchingOtherFilters = reservations.filter(r => {
     if (filterProject && r.project !== filterProject) return false;
     if (filterUnit && String(r.unit_id) !== String(filterUnit)) return false;
     if (filterUnitNumber && !String(r.unit_number || '').toLowerCase().includes(filterUnitNumber.toLowerCase())) return false;
     if (filterStatus && r.status !== filterStatus) return false;
+    if (filterNeedsDetails && !r.ota_details_needed) return false;
     if (filterPayment) {
       const want = filterPayment === 'unpaid' ? 'pending' : filterPayment;
       if (r.payment_status !== want) return false;
@@ -1528,6 +1544,24 @@ export default function Reservations() {
           </button>
         </div>
 
+      {(otaDetailsNeededCount > 0 || filterNeedsDetails) && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p>
+            <span className="font-semibold">
+              {otaDetailsNeededCount} Airbnb / Booking.com booking{otaDetailsNeededCount === 1 ? '' : 's'}
+            </span>{' '}
+            imported from the calendar sync {otaDetailsNeededCount === 1 ? 'needs' : 'need'} the guest name, phone and amount paid.
+          </p>
+          <button
+            type="button"
+            onClick={() => setFilterNeedsDetails((v) => !v)}
+            className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+          >
+            {filterNeedsDetails ? 'Show all reservations' : 'Show them'}
+          </button>
+        </div>
+      )}
+
       <ChannelTabs value={filterChannel} onChange={setFilterChannel} counts={channelCounts} />
 
       <SearchFilter value={search} onChange={setSearch} placeholder="Search tenant, email, phone...">
@@ -1662,7 +1696,14 @@ export default function Reservations() {
                       {!isOwnersRelations && (
                         <td className="whitespace-nowrap text-gray-600">{r.project || '—'}</td>
                       )}
-                      <td className="font-medium text-gray-900 whitespace-nowrap">{r.guest_name || '—'}</td>
+                      <td className="font-medium text-gray-900 whitespace-nowrap">
+                        {r.guest_name || '—'}
+                        {r.ota_details_needed && (
+                          <span className="ml-2 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                            Details needed
+                          </span>
+                        )}
+                      </td>
                       <td className="text-gray-600 whitespace-nowrap">{r.guest_phone || '—'}</td>
                       <td className="whitespace-nowrap"><ChannelBadge reservation={r} /></td>
                       <td className="text-center whitespace-nowrap">{r.nights ?? '—'}</td>

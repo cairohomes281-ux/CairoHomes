@@ -134,7 +134,18 @@ async function poolMap(items, concurrency, fn) {
   );
 }
 
+async function importReservations(items) {
+  const { importReservationsForFeeds } = require('./otaIcalReservations');
+  return importReservationsForFeeds(items);
+}
+
 async function refreshFeedBlocks(feed, { from, to }) {
+  const { count, text } = await syncFeedBlocks(feed, { from, to });
+  await importReservations([{ feed, ics: text }]);
+  return count;
+}
+
+async function syncFeedBlocks(feed, { from, to }) {
   const text = await fetchWithTimeout(feed.ical_url);
   if (!looksLikeIcal(text)) {
     throw new Error('Remote response is not a valid iCalendar feed');
@@ -177,7 +188,7 @@ async function refreshFeedBlocks(feed, { from, to }) {
   } finally {
     client.release();
   }
-  return dates.length;
+  return { count: dates.length, text };
 }
 
 async function refreshIcalBlocks({ monthsAhead = MONTHS_AHEAD, unitId = null } = {}) {
@@ -191,6 +202,7 @@ async function refreshIcalBlocks({ monthsAhead = MONTHS_AHEAD, unitId = null } =
   let datesWritten = 0;
   let errors = 0;
   const feedErrors = [];
+  const fetched = [];
 
   await poolMap(feeds, CONCURRENCY, async (feed) => {
     try {
@@ -198,8 +210,9 @@ async function refreshIcalBlocks({ monthsAhead = MONTHS_AHEAD, unitId = null } =
         `UPDATE unit_ota_feeds SET sync_status = 'syncing', updated_at = now() WHERE id = $1`,
         [feed.id]
       );
-      const count = await refreshFeedBlocks(feed, { from, to });
+      const { count, text } = await syncFeedBlocks(feed, { from, to });
       datesWritten += count;
+      fetched.push({ feed, ics: text });
     } catch (err) {
       errors++;
       feedErrors.push({ feed_id: feed.id, platform: feed.platform, error: err.message });
@@ -213,11 +226,14 @@ async function refreshIcalBlocks({ monthsAhead = MONTHS_AHEAD, unitId = null } =
     }
   });
 
+  const reservations = await importReservations(fetched);
+
   return {
     feeds: feeds.length,
     datesWritten,
     errors,
     feedErrors,
+    reservations,
     from,
     to,
   };
