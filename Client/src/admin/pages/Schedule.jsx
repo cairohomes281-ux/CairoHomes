@@ -177,7 +177,7 @@ const COLOR_FILTERS = [
   { value: 'past', label: 'Past stays' },
 ];
 
-const CELL_W = 38;
+const CELL_W = 'var(--rack-cell-w)';
 
 
 function PriceEditorModal({
@@ -430,7 +430,7 @@ function ReservationDetailModal({
         [
           'Phone',
           res.guest_phone ? (
-            <a href={`tel:${res.guest_phone}`} className="text-[#0a246a] underline">
+            <a href={`tel:${res.guest_phone}`} className="text-[#185c37] underline underline-offset-2">
               {res.guest_phone}
             </a>
           ) : null,
@@ -441,7 +441,7 @@ function ReservationDetailModal({
         ['Paid', reservationMoney(paid, res)],
         [
           'To collect',
-          <span className={remaining > 0 ? 'font-bold text-[#a00000]' : ''}>
+          <span className={remaining > 0 ? 'text-[#9c0006]' : 'text-[#006100]'}>
             {reservationMoney(remaining, res)}
           </span>,
         ],
@@ -461,12 +461,14 @@ function ReservationDetailModal({
           {isLoading && !res ? (
             <p className="py-6 text-center">Loading…</p>
           ) : res ? (
-            rows.map(([label, value]) => (
-              <div key={label} className="rack-dialog-row">
-                <span>{label}:</span>
-                <span className="rack-field">{value || '—'}</span>
-              </div>
-            ))
+            <div className="rack-dialog-sheet">
+              {rows.map(([label, value]) => (
+                <div key={label} className="rack-dialog-row">
+                  <span className="rack-dialog-label">{label}</span>
+                  <span className="rack-dialog-value">{value || '—'}</span>
+                </div>
+              ))}
+            </div>
           ) : (
             <p className="py-6 text-center">Reservation not found</p>
           )}
@@ -476,7 +478,7 @@ function ReservationDetailModal({
             <>
               <button
                 type="button"
-                className="rack-btn rack-btn--danger mr-auto"
+                className="rack-btn rack-btn--danger sm:mr-auto"
                 disabled={cancelling || deleting}
                 onClick={() => onCancel?.(res)}
               >
@@ -500,7 +502,7 @@ function ReservationDetailModal({
               </button>
             </>
           )}
-          <button type="button" className="rack-btn rack-btn--primary min-w-[64px] justify-center" onClick={onClose}>
+          <button type="button" className="rack-btn rack-btn--primary min-w-[72px]" onClick={onClose}>
             Close
           </button>
         </div>
@@ -1288,6 +1290,12 @@ export default function Schedule() {
     // Click (no drag) → edit when possible, otherwise single-night reserve
     if (!drag.moved) {
       clearDragPaint();
+      if (drag.touch && drag.canEdit && drag.canBook) {
+        paintDragRange(drag.unitId, start, end);
+        if (dragHintRef.current) dragHintRef.current.hidden = true;
+        setRangeAction({ unitId: drag.unitId, unit: drag.unit, start, end, canEdit: true, canBook: true });
+        return;
+      }
       if (drag.canEdit && drag.unit) {
         handlePriceClick(drag.unit, start);
       } else if (drag.canBook) {
@@ -1337,6 +1345,14 @@ export default function Schedule() {
     const onMove = (e) => {
       const drag = dragSelectRef.current;
       if (!drag) return;
+
+      // Touch: a swipe scrolls the grid, only a tap selects a night.
+      if (drag.touch) {
+        const dx = e.clientX - drag.originX;
+        const dy = e.clientY - drag.originY;
+        if (dx * dx + dy * dy >= 100) dragSelectRef.current = null;
+        return;
+      }
 
       if (!drag.moved) {
         const dx = e.clientX - drag.originX;
@@ -1391,13 +1407,21 @@ export default function Schedule() {
       if (!dragSelectRef.current) return;
       finishCellGesture();
     };
+    const onCancel = () => {
+      if (!dragSelectRef.current) return;
+      if (dragSelectRef.current.touch) {
+        dragSelectRef.current = null;
+        return;
+      }
+      finishCellGesture();
+    };
     window.addEventListener('pointermove', onMove, { passive: true });
     window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
+    window.addEventListener('pointercancel', onCancel);
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('pointercancel', onCancel);
       if (dragRafRef.current) cancelAnimationFrame(dragRafRef.current);
     };
   }, [finishCellGesture, paintDragRange, TODAY]);
@@ -1407,6 +1431,21 @@ export default function Schedule() {
       if (dateStr < TODAY) return;
       if (!canEdit && !canBook) return;
       if (event.button !== 0) return;
+      if (event.pointerType === 'touch') {
+        dragSelectRef.current = {
+          unitId: unit.id,
+          unit,
+          start: dateStr,
+          end: dateStr,
+          originX: event.clientX,
+          originY: event.clientY,
+          moved: false,
+          touch: true,
+          canEdit: Boolean(canEdit),
+          canBook: Boolean(canBook),
+        };
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       dragSelectRef.current = {
@@ -1633,16 +1672,17 @@ export default function Schedule() {
     <div className="rack space-y-1">
       <div className="rack-window">
         <div className="rack-titlebar">
-          <CalendarRange className="h-3.5 w-3.5 flex-shrink-0" />
-          <span>Room Rack</span>
-          <span className="rack-titlebar-sub">— {rangeLabel}</span>
+          <CalendarRange className="h-4 w-4 flex-shrink-0" />
+          <span>Schedule</span>
+          <span className="rack-titlebar-sub">{rangeLabel}</span>
         </div>
 
         <div className="rack-menubar">
           {canWrite && (
             <>
               <button type="button" onClick={() => openCreateDrawer()} className="rack-btn rack-btn--primary">
-                <Plus /> New reservation
+                <Plus /> <span className="sm:hidden">New</span>
+                <span className="hidden sm:inline">New reservation</span>
               </button>
               <button
                 type="button"
@@ -1654,28 +1694,34 @@ export default function Schedule() {
               <span className="rack-sep" />
             </>
           )}
-          <button type="button" onClick={goPrevMonth} className="rack-btn" title="Previous month">
-            <ChevronLeft />
-          </button>
-          <span className="rack-field min-w-[9.5rem] justify-center font-bold">{monthLabel}</span>
-          <button type="button" onClick={goNextMonth} className="rack-btn" title="Next month">
-            <ChevronRight />
-          </button>
-          <button type="button" onClick={goThisMonth} className="rack-btn" title="Jump to this month">
-            Today
-          </button>
-          <span className="rack-sep" />
-          {[1, 2, 3].map((n) => (
-            <button
-              key={n}
-              type="button"
-              onClick={() => setSpanMonths(n)}
-              aria-pressed={spanMonths === n}
-              className="rack-btn"
-            >
-              {n} {n === 1 ? 'Month' : 'Months'}
+          <span className="rack-nav order-first sm:order-none">
+            <button type="button" onClick={goPrevMonth} className="rack-btn px-2.5" aria-label="Previous month">
+              <ChevronLeft />
             </button>
-          ))}
+            <span className="rack-field">{monthLabel}</span>
+            <button type="button" onClick={goNextMonth} className="rack-btn px-2.5" aria-label="Next month">
+              <ChevronRight />
+            </button>
+            <button type="button" onClick={goThisMonth} className="rack-btn" title="Jump to this month">
+              Today
+            </button>
+          </span>
+          <span className="rack-sep" />
+          <span className="rack-seg">
+            {[1, 2, 3].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setSpanMonths(n)}
+                aria-pressed={spanMonths === n}
+                className="rack-btn"
+              >
+                {n}
+                <span className="sm:hidden">M</span>
+                <span className="hidden sm:inline">{n === 1 ? ' Month' : ' Months'}</span>
+              </button>
+            ))}
+          </span>
           {canEditPrice && (
             <>
               <span className="rack-sep" />
@@ -1719,14 +1765,14 @@ export default function Schedule() {
               )}
             </>
           )}
-          <span className="rack-sep lg:hidden" />
+          <span className="rack-sep rack-mobile-only" />
           <button
             type="button"
-            className="rack-btn lg:hidden"
+            className="rack-btn rack-mobile-only"
             aria-pressed={filtersOpen}
             onClick={() => setFiltersOpen((v) => !v)}
           >
-            Filters{hasFilters ? ' *' : ''}
+            Filters{hasFilters ? ' •' : ''}
           </button>
         </div>
 
@@ -1894,16 +1940,16 @@ export default function Schedule() {
           </div>
         </fieldset>
 
-        <div ref={dragHintRef} hidden className="rack-hint sticky top-2 z-20 pointer-events-none mb-1" />
+        <div ref={dragHintRef} hidden className="rack-hint sticky top-2 z-20 pointer-events-none m-2" />
 
         {rangeAction ? (
-          <div className="rack-hint sticky top-2 z-20 mb-1 flex flex-wrap items-center justify-between gap-2">
-            <span>
+          <div className="rack-hint rack-action flex flex-wrap items-center justify-between gap-2">
+            <span className="font-semibold">
+              {rangeAction.unit ? `${unitDisplay(rangeAction.unit)} · ` : ''}
               {formatDate(rangeAction.start)}
               {rangeAction.end !== rangeAction.start ? ` → ${formatDate(rangeAction.end)}` : ''}
-              {' · '}what do you want to do?
             </span>
-            <span className="flex flex-wrap gap-1">
+            <span className="flex w-full flex-wrap gap-2 sm:w-auto">
               <button type="button" className="rack-btn" onClick={clearRangeAction}>
                 Cancel
               </button>
@@ -1917,7 +1963,7 @@ export default function Schedule() {
                     if (unit) handlePriceClick(unit, start, end);
                   }}
                 >
-                  <DollarSign /> Edit prices / block
+                  <DollarSign /> Price / block
                 </button>
               ) : null}
               {rangeAction.canBook ? (
@@ -1934,7 +1980,7 @@ export default function Schedule() {
                     });
                   }}
                 >
-                  <Plus /> Create reservation
+                  <Plus /> Reserve
                 </button>
               ) : null}
             </span>
@@ -1946,23 +1992,23 @@ export default function Schedule() {
             <LoadingSpinner />
           </div>
         ) : (
-          <div className="rack-sheet relative z-0" style={{ maxHeight: '75vh' }}>
+          <div className="rack-sheet relative z-0">
             <table
               className="rack-table"
-              style={{ minWidth: Math.max(480, 250 + displayDates.length * CELL_W) }}
+              style={{ minWidth: `calc(var(--rack-head-w) + ${displayDates.length} * var(--rack-cell-w))` }}
             >
               <thead className="sticky top-0 z-30">
                 <tr className="rack-month">
                   <th rowSpan={2} className="rack-rowhead sticky left-0 z-40 align-bottom">
-                    <div className="rack-rowhead-inner" style={{ height: 48 }}>
+                    <div className="rack-rowhead-inner" style={{ height: 62 }}>
                       <span className="rack-col-code">Unit</span>
-                      <span className="rack-col-name hidden sm:flex">Name</span>
-                      <span className="rack-col-br hidden sm:flex">BR</span>
+                      <span className="rack-col-name">Name</span>
+                      <span className="rack-col-br">BR</span>
                     </div>
                   </th>
                   {monthGroups.map((g) => (
                     <th key={g.label} colSpan={g.span}>
-                      <span className="sticky inline-block left-[100px] sm:left-[252px]">{g.label}</span>
+                      <span className="sticky inline-block left-[116px] sm:left-[260px]">{g.label}</span>
                     </th>
                   ))}
                 </tr>
@@ -1998,7 +2044,8 @@ export default function Schedule() {
                           className="rack-rowhead-inner"
                           title={[unitDisplay(unit), name, unit.project].filter(Boolean).join(' · ')}
                         >
-                          <span className="rack-col-code gap-1">
+                          <span className="rack-col-code">
+                            <span className="rack-code">
                             {bulkMode && (
                               <input
                                 type="checkbox"
@@ -2010,19 +2057,21 @@ export default function Schedule() {
                                     return next;
                                   })
                                 }
-                                className="h-3 w-3 flex-shrink-0"
+                                className="h-4 w-4 flex-shrink-0 accent-[#217346]"
                               />
                             )}
-                            <span className="truncate">{unitDisplay(unit)}</span>
+                              <span className="truncate">{unitDisplay(unit)}</span>
+                            </span>
+                            {name && <span className="rack-subname">{name}</span>}
                           </span>
-                          <span className="rack-col-name hidden sm:flex gap-1">
+                          <span className="rack-col-name gap-1">
                             <span>{name || unit.project || '—'}</span>
                             {unit.photos_link && (
                               <a
                                 href={unit.photos_link}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="ml-auto flex-shrink-0 text-[#0a246a]"
+                                className="ml-auto flex-shrink-0 text-[#185c37]"
                                 title="View photos"
                                 onClick={(e) => e.stopPropagation()}
                               >
@@ -2030,7 +2079,7 @@ export default function Schedule() {
                               </a>
                             )}
                           </span>
-                          <span className="rack-col-br hidden sm:flex">
+                          <span className="rack-col-br">
                             {unit.bedrooms > 0 ? unit.bedrooms : 'S'}
                           </span>
                         </div>
@@ -2084,7 +2133,6 @@ export default function Schedule() {
                                 width: CELL_W,
                                 ...(hatch ? { backgroundImage: hatch } : {}),
                                 userSelect: 'none',
-                                touchAction: cellClickable ? 'none' : undefined,
                               }}
                               className={cellCls}
                               onPointerDown={(e) => {
@@ -2225,7 +2273,7 @@ export default function Schedule() {
                               data-sched-date={cell.date}
                               data-sched-span={cell.span}
                               colSpan={cell.span}
-                              style={{ minWidth: CELL_W * cell.span }}
+                              style={{ minWidth: `calc(${CELL_W} * ${cell.span})` }}
                               className="rack-cell"
                             >
                               <div
