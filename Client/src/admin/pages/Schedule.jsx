@@ -1,7 +1,7 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, CalendarRange, Edit2, X, DollarSign, Eye, ExternalLink, Clock, Hourglass, Trash2, Plus, Ban, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarRange, Edit2, X, DollarSign, Eye, ExternalLink, Clock, Hourglass, Trash2, Plus, Ban, Search, SlidersHorizontal } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
@@ -69,85 +69,51 @@ const normDate = (d) => isoDateOnly(d);
 
 
 
-function buildRow(unitId, dates, reservations) {
-  const unitRes = reservations
-    .filter((r) => r.unit_id === unitId)
-    .map((r) => ({ ...r, check_in: normDate(r.check_in), check_out: normDate(r.check_out) }));
-
-  const cells = [];
+function buildSegments(unitRes, dateStrs) {
+  const segs = [];
+  const lastDate = dateStrs[dateStrs.length - 1];
   let i = 0;
-
-  while (i < dates.length) {
-    const dStr = isoDate(dates[i]);
-
-    
-    const covering = unitRes.find((r) => r.check_in < dStr && r.check_out > dStr);
-    if (covering) {
-      let span = 0;
-      const midStart = dStr;
-      while (i < dates.length) {
-        const d = isoDate(dates[i]);
-        if (!(covering.check_in < d && covering.check_out > d)) break;
-        span++;
-        i++;
-      }
-      cells.push({ type: 'mid', res: covering, span, firstDate: midStart, unitId });
+  while (i < dateStrs.length) {
+    const d = dateStrs[i];
+    const res = unitRes.find((r) => r.ci <= d && r.co > d);
+    if (!res) {
+      segs.push({ type: 'free', date: d });
+      i += 1;
       continue;
     }
-
-    const starting = unitRes.find((r) => r.check_in === dStr);
-    const ending = unitRes.find((r) => r.check_out === dStr);
-
-    
-    if (starting && ending && starting.id !== ending.id) {
-      cells.push({
-        type: 'turnover',
-        outRes: ending,
-        inRes: starting,
-        date: dStr,
-        unitId,
-      });
-      i++;
-      continue;
+    let span = 0;
+    while (i < dateStrs.length && res.ci <= dateStrs[i] && res.co > dateStrs[i]) {
+      span += 1;
+      i += 1;
     }
-
-    if (starting) {
-      cells.push({ type: 'checkin', res: starting, date: dStr, unitId });
-      i++;
-      continue;
-    }
-
-    
-    if (ending) {
-      cells.push({ type: 'checkout', res: ending, date: dStr, unitId });
-      i++;
-      continue;
-    }
-
-    cells.push({ type: 'price', date: dStr, unitId });
-    i++;
+    segs.push({
+      type: 'res',
+      res,
+      date: d,
+      span,
+      clipStart: res.ci < d,
+      clipEnd: res.co > addDays(lastDate, 1),
+    });
   }
-
-  return cells;
+  return segs;
 }
 
-
-function rackBarClass(res, today) {
+function schBarClass(res, today) {
   const tomorrow = addDays(today, 1);
   const co = normDate(res.check_out);
   const ci = normDate(res.check_in);
-  if (res.status === 'cancelled') return 'rack-bar--cancelled';
-  if (res.is_hold || res.status === 'hold') return 'rack-bar--hold';
-  if (co < today) return 'rack-bar--past';
-  if (co === tomorrow) return 'rack-bar--departure';
-  if (ci === tomorrow) return 'rack-bar--arrival';
-  if (res.is_owner_reservation && parseFloat(res.total_amount) === 0) return 'rack-bar--blocked';
-  if (res.is_owner_reservation) return 'rack-bar--owner';
-  if (ci <= today) return 'rack-bar--inhouse';
-  return 'rack-bar--future';
+  if (res.status === 'cancelled') return 'sch-bar--cancelled';
+  if (res.is_hold || res.status === 'hold') return 'sch-bar--hold';
+  if (co < today) return 'sch-bar--past';
+  if (co === today || co === tomorrow) return 'sch-bar--departure';
+  if (ci === today || ci === tomorrow) return 'sch-bar--arrival';
+  if (res.is_owner_reservation && parseFloat(res.total_amount) === 0) return 'sch-bar--blocked';
+  if (res.is_owner_reservation) return 'sch-bar--owner';
+  if (ci < today) return 'sch-bar--inhouse';
+  return 'sch-bar--future';
 }
 
-function rackTip(res) {
+function schTip(res) {
   return `${res.status === 'cancelled' ? 'CANCELLED · ' : ''}${res.guest_name || ''}\n${formatDate(
     normDate(res.check_in)
   )} → ${formatDate(normDate(res.check_out))}`;
@@ -157,32 +123,56 @@ function shortPrice(price) {
   return price >= 1000 ? `${(price / 1000).toFixed(price % 1000 === 0 ? 0 : 1)}k` : price;
 }
 
-const RACK_LEGEND = [
-  { cls: 'rack-bar--inhouse', label: 'In house' },
-  { cls: 'rack-bar--future', label: 'Upcoming' },
-  { cls: 'rack-bar--arrival', label: 'Arrives tomorrow' },
-  { cls: 'rack-bar--departure', label: 'Leaves tomorrow' },
-  { cls: 'rack-bar--hold', label: 'Hold' },
-  { cls: 'rack-bar--owner', label: 'Owner' },
-  { cls: 'rack-bar--blocked', label: 'Blocked' },
-  { cls: 'rack-bar--cancelled', label: 'Cancelled' },
-  { cls: 'rack-bar--past', label: 'Checked out' },
-  { cls: 'rack-cell--unpriced', label: 'No price' },
-  { cls: 'rack-cell--lt', label: 'Long-term' },
+function resBadge(res) {
+  if (String(res.id || '').startsWith('web-')) return 'WEB';
+  if (res.is_hold || res.status === 'hold') return 'HOLD';
+  return `#${res.id}`;
+}
+
+const SCH_LEGEND = [
+  { cls: 'sch-bar--inhouse', label: 'In house' },
+  { cls: 'sch-bar--arrival', label: 'Arriving' },
+  { cls: 'sch-bar--departure', label: 'Leaving' },
+  { cls: 'sch-bar--future', label: 'Upcoming' },
+  { cls: 'sch-bar--hold', label: 'Hold' },
+  { cls: 'sch-bar--owner', label: 'Owner' },
+  { cls: 'sch-bar--blocked', label: 'Blocked' },
+  { cls: 'sch-bar--past', label: 'Checked out' },
+  { cls: 'sch-swatch--unpriced', label: 'No price' },
 ];
 
 const COLOR_FILTERS = [
   { value: '', label: 'All stays' },
+  { value: 'checkin_today', label: 'Arrivals today' },
+  { value: 'checkout_today', label: 'Departures today' },
+  { value: 'checkin_tomorrow', label: 'Check-in tomorrow' },
+  { value: 'checkout_tomorrow', label: 'Check-out tomorrow' },
   { value: 'hold', label: 'Holds' },
   { value: 'owner', label: 'Owner reservations' },
   { value: 'sales', label: 'Guest / sales' },
   { value: 'blocked', label: 'Blocked nights' },
-  { value: 'checkin_tomorrow', label: 'Check-in tomorrow' },
-  { value: 'checkout_tomorrow', label: 'Check-out tomorrow' },
   { value: 'past', label: 'Past stays' },
 ];
 
-const CELL_W = 'var(--rack-cell-w)';
+const SPAN_OPTIONS = [1, 3, 6];
+
+const GUEST_CHECK_IN_TIME = '3:00 PM';
+const GUEST_CHECK_OUT_TIME = '11:00 AM';
+
+const longDate = (d) =>
+  d
+    ? new Date(`${normDate(d)}T00:00:00`).toLocaleDateString('en-GB', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      })
+    : '—';
+
+const nightsBetween = (ci, co) =>
+  ci && co
+    ? Math.max(0, Math.round((new Date(`${normDate(co)}T00:00:00`) - new Date(`${normDate(ci)}T00:00:00`)) / 86400000))
+    : 0;
 
 
 function PriceEditorModal({
@@ -402,6 +392,7 @@ function ReservationDetailModal({
 }) {
   const isWebsitePending = String(reservationId || '').startsWith('web-');
   const numericId = isWebsitePending ? null : reservationId;
+  const [guestView, setGuestView] = useState(false);
 
   const { data: fetched, isLoading } = useQuery({
     queryKey: ['reservation-detail', numericId],
@@ -419,6 +410,10 @@ function ReservationDetailModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  useEffect(() => {
+    if (open) setGuestView(false);
+  }, [open, reservationId]);
+
   if (!open) return null;
 
   const res = fetched || seed;
@@ -426,64 +421,186 @@ function ReservationDetailModal({
   const total = parseFloat(res?.total_amount) || 0;
   const remaining = Math.max(0, total - paid);
   const cancelled = String(res?.status || '').toLowerCase() === 'cancelled';
-  const isOwner = Number(res?.is_owner_reservation) === 1;
+  const isHold = !!(res?.is_hold || res?.status === 'hold');
+  const isOwner = Number(res?.is_owner_reservation) === 1 || res?.is_owner_reservation === true;
   const canAct = canWrite && res && !cancelled && !isWebsitePending;
-
-  const rows = res
+  const nights = nightsBetween(res?.check_in, res?.check_out);
+  const roomName = res?.unit_title || unitName || res?.unit_name || 'Your apartment';
+  const unitCode = res?.unit_number || res?.unit_name;
+  const money = (v) => (v != null && v !== '' && Number(v) !== 0 ? reservationMoney(parseFloat(v) || 0, res) : null);
+  const guestsText = res
     ? [
-        ['Guest name', res.guest_name],
-        [
-          'Phone',
-          res.guest_phone ? (
-            <a href={`tel:${res.guest_phone}`} className="text-[#185c37] underline underline-offset-2">
-              {res.guest_phone}
-            </a>
-          ) : null,
-        ],
-        ['Unit', unitName || res.unit_title || res.unit_name],
-        ['Check-in', formatDate(res.check_in)],
-        ['Check-out', formatDate(res.check_out)],
-        ['Paid', reservationMoney(paid, res)],
-        [
-          'To collect',
-          <span className={remaining > 0 ? 'text-[#9c0006]' : 'text-[#006100]'}>
-            {reservationMoney(remaining, res)}
-          </span>,
-        ],
+        res.adults != null ? `${res.adults} adult${Number(res.adults) === 1 ? '' : 's'}` : null,
+        Number(res.children) > 0 ? `${res.children} child${Number(res.children) === 1 ? '' : 'ren'}` : null,
+        Number(res.nanny_count) > 0 ? `${res.nanny_count} nanny` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
+
+  const sections = res
+    ? [
+        {
+          title: 'Stay',
+          rows: [
+            ['Apartment', roomName],
+            ['Unit code', unitCode && unitCode !== roomName ? unitCode : null],
+            ['Destination', res.project],
+            ['Check-in', `${longDate(res.check_in)} · from ${GUEST_CHECK_IN_TIME}`],
+            ['Check-out', `${longDate(res.check_out)} · by ${GUEST_CHECK_OUT_TIME}`],
+            ['Nights', nights ? nightsText(nights) : null],
+            ['Guests', guestsText],
+          ],
+        },
+        {
+          title: 'Guest',
+          rows: [
+            ['Name', res.guest_name],
+            [
+              'Phone',
+              res.guest_phone ? (
+                <span className="flex flex-wrap gap-x-3 gap-y-1">
+                  <a href={`tel:${res.guest_phone}`} className="sch-link">{res.guest_phone}</a>
+                  <a
+                    href={`https://wa.me/${String(res.guest_phone).replace(/\D/g, '')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="sch-link"
+                  >
+                    WhatsApp
+                  </a>
+                </span>
+              ) : null,
+            ],
+            ['Email', res.guest_email],
+            ['Nationality', res.guest_nationality],
+          ],
+        },
+        {
+          title: 'Payment',
+          rows: [
+            ['Total', money(res.total_amount)],
+            ['Per night', money(res.price_per_night)],
+            ['Paid', reservationMoney(paid, res)],
+            [
+              'To collect',
+              <span className={remaining > 0 ? 'text-[#a43f53]' : 'text-ch-pine'}>
+                {reservationMoney(remaining, res)}
+              </span>,
+            ],
+            ['Down payment', money(res.down_payment)],
+            ['Insurance', money(res.insurance)],
+            ['Beach access', money(res.beach_access_fees)],
+            ['Method', res.payment_method],
+            ['Payment status', res.payment_status],
+          ],
+        },
+        {
+          title: 'Booking',
+          rows: [
+            ['Status', res.status],
+            ['Source', res.booking_source],
+            ['Sales person', isOwner ? 'Owner reservation' : res.sales_person_name],
+            ['OTA code', res.ota_reservation_code],
+            ['Created by', res.created_by_name],
+            ['Created', res.created_at ? formatDate(res.created_at) : null],
+            ['Notes', res.notes],
+          ],
+        },
       ]
     : [];
 
+  if (guestView && res) {
+    return createPortal(
+      <div className="sch sch-guest-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setGuestView(false)}>
+        <div className="sch-guest-card" role="dialog" aria-modal="true" aria-label="Guest booking card">
+          <div className="sch-guest-brand">
+            <img src="/brand/cairo-homes-mark.svg" alt="" />
+            <span>Cairo Homes</span>
+          </div>
+          <p className="sch-guest-hello">Booking for</p>
+          <h2 className="sch-guest-name">{res.guest_name || 'Guest'}</h2>
+          <div className="sch-guest-room">{roomName}</div>
+          <div className="sch-guest-dates">
+            <div>
+              <span className="sch-guest-label">Check-in</span>
+              <span className="sch-guest-date">{longDate(res.check_in)}</span>
+              <span className="sch-guest-time">From {GUEST_CHECK_IN_TIME}</span>
+            </div>
+            <div>
+              <span className="sch-guest-label">Check-out</span>
+              <span className="sch-guest-date">{longDate(res.check_out)}</span>
+              <span className="sch-guest-time">By {GUEST_CHECK_OUT_TIME}</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" className="sch-guest-back" onClick={() => setGuestView(false)}>
+          <ChevronLeft /> Back to details
+        </button>
+      </div>,
+      document.body
+    );
+  }
+
   return createPortal(
-    <div className="rack rack-dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="rack-window rack-dialog" role="dialog" aria-modal="true">
-        <div className="rack-titlebar">
-          <span>Reservation{cancelled ? ' (cancelled)' : ''}</span>
-          <button type="button" className="rack-dialog-close" onClick={onClose} aria-label="Close">
-            ×
+    <div className="sch sch-dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="sch-dialog" role="dialog" aria-modal="true">
+        <div className="sch-dialog-head">
+          <div className="min-w-0">
+            <p className="sch-dialog-kicker">
+              {res ? resBadge(res) : 'Reservation'}
+              {res?.status ? ` · ${cancelled ? 'Cancelled' : isHold ? 'Hold' : res.status}` : ''}
+            </p>
+            <h2 className="sch-dialog-title">{res?.guest_name || 'Reservation'}</h2>
+            {res && (
+              <p className="sch-dialog-sub">
+                {roomName} · {formatDate(res.check_in)} → {formatDate(res.check_out)}
+              </p>
+            )}
+          </div>
+          <button type="button" className="sch-dialog-close" onClick={onClose} aria-label="Close">
+            <X />
           </button>
         </div>
-        <div className="rack-dialog-body">
+        {res && (
+          <div className="sch-dialog-tabs">
+            <button type="button" aria-pressed="true">Details</button>
+            <button type="button" aria-pressed="false" onClick={() => setGuestView(true)}>
+              <Eye /> Guest view
+            </button>
+          </div>
+        )}
+        <div className="sch-dialog-body">
           {isLoading && !res ? (
-            <p className="py-6 text-center">Loading…</p>
+            <p className="py-8 text-center text-ch-muted">Loading…</p>
           ) : res ? (
-            <div className="rack-dialog-sheet">
-              {rows.map(([label, value]) => (
-                <div key={label} className="rack-dialog-row">
-                  <span className="rack-dialog-label">{label}</span>
-                  <span className="rack-dialog-value">{value || '—'}</span>
-                </div>
-              ))}
-            </div>
+            sections.map((s) => {
+              const rows = s.rows.filter(([, v]) => v != null && v !== '');
+              if (!rows.length) return null;
+              return (
+                <section key={s.title} className="sch-dialog-section">
+                  <h3>{s.title}</h3>
+                  <dl>
+                    {rows.map(([label, value]) => (
+                      <div key={label}>
+                        <dt>{label}</dt>
+                        <dd>{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              );
+            })
           ) : (
-            <p className="py-6 text-center">Reservation not found</p>
+            <p className="py-8 text-center text-ch-muted">Reservation not found</p>
           )}
         </div>
-        <div className="rack-dialog-actions">
+        <div className="sch-dialog-actions">
           {canAct && (
             <>
               <button
                 type="button"
-                className="rack-btn rack-btn--danger sm:mr-auto"
+                className="sch-btn sch-btn--danger sm:mr-auto"
                 disabled={cancelling || deleting}
                 onClick={() => onCancel?.(res)}
               >
@@ -491,23 +608,23 @@ function ReservationDetailModal({
               </button>
               <button
                 type="button"
-                className="rack-btn rack-btn--danger"
+                className="sch-btn sch-btn--danger"
                 disabled={cancelling || deleting}
                 onClick={() => onDelete?.(res)}
               >
-                Delete
+                <Trash2 /> Delete
               </button>
               {!isOwner && (
-                <button type="button" className="rack-btn" onClick={() => onMoveUnit?.(res)}>
+                <button type="button" className="sch-btn" onClick={() => onMoveUnit?.(res)}>
                   Move unit
                 </button>
               )}
-              <button type="button" className="rack-btn" onClick={() => onEdit?.(res)}>
-                Edit
+              <button type="button" className="sch-btn" onClick={() => onEdit?.(res)}>
+                <Edit2 /> Edit
               </button>
             </>
           )}
-          <button type="button" className="rack-btn rack-btn--primary min-w-[72px]" onClick={onClose}>
+          <button type="button" className="sch-btn sch-btn--primary" onClick={onClose}>
             Close
           </button>
         </div>
@@ -822,8 +939,12 @@ export default function Schedule() {
   const { canEditSchedulePricing, canManageReservations, canReserveLongTermUnits, canWriteSchedule, isManualReservations, isWebsiteReservations, isReservationsManager, isAdmin } = usePermissions();
   const TODAY = todayStr();
   const TOMORROW = addDays(TODAY, 1);
-  const [viewStart, setViewStart] = useState(TODAY);
-  const [spanMonths, setSpanMonths] = useState(2);
+  const [anchor, setAnchor] = useState(TODAY);
+  const [spanMonths, setSpanMonths] = useState(3);
+  const [scrollNonce, setScrollNonce] = useState(0);
+  const [priceMode, setPriceMode] = useState(false);
+  const gridRef = useRef(null);
+  const lastScrollRef = useRef(0);
 
   
   const [createDrawer, setCreateDrawer] = useState(false);
@@ -833,7 +954,6 @@ export default function Schedule() {
   const dragHintRef = useRef(null);
   const dragRafRef = useRef(0);
   const suppressClickRef = useRef(false);
-  const [rangeAction, setRangeAction] = useState(null);
 
   
   const [filterBedrooms,  setFilterBedrooms]  = useState('');
@@ -890,8 +1010,8 @@ export default function Schedule() {
   const [holdDetailId,      setHoldDetailId]      = useState(null);
 
   
-  const defaultFrom = viewStart;
-  const defaultTo   = addMonths(viewStart, spanMonths);
+  const defaultFrom = addMonths(anchor, -1);
+  const defaultTo   = addMonths(anchor, spanMonths);
 
   
   
@@ -928,12 +1048,25 @@ export default function Schedule() {
     return days;
   }, [fromStr, toStr]);
 
+  const dateStrs = useMemo(() => displayDates.map(isoDate), [displayDates]);
+
   const monthLabel = useMemo(() => {
     const fmt = (s) =>
-      new Date(`${s}T00:00:00`).toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-    const last = addDays(addMonths(viewStart, spanMonths), -1);
-    return `${fmt(viewStart)} – ${fmt(last)} ${last.slice(0, 4)}`;
-  }, [viewStart, spanMonths]);
+      new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const last = addDays(toStr, -1);
+    return `${fmt(fromStr)} – ${fmt(last)} ${last.slice(0, 4)}`;
+  }, [fromStr, toStr]);
+
+  const anchorLabel = useMemo(
+    () =>
+      new Date(`${anchor}T00:00:00`).toLocaleDateString('en-GB', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }),
+    [anchor]
+  );
 
   
   const { data, isLoading } = useQuery({
@@ -1201,9 +1334,16 @@ export default function Schedule() {
   });
 
   
-  const goPrevMonth = () => setViewStart((s) => addMonths(s, -1));
-  const goNextMonth = () => setViewStart((s) => addMonths(s, 1));
-  const goThisMonth = () => setViewStart(TODAY);
+  const jumpTo = (dateStr) => {
+    if (!dateStr) return;
+    setFilterFrom('');
+    setFilterTo('');
+    setAnchor(dateStr);
+    setScrollNonce((n) => n + 1);
+  };
+  const goPrevMonth = () => jumpTo(addMonths(anchor, -1));
+  const goNextMonth = () => jumpTo(addMonths(anchor, 1));
+  const goThisMonth = () => jumpTo(TODAY);
 
   const hasFilters = filterBedrooms || filterProject || filterFrom || filterTo || filterColor || filterUnits.length || filterFloor || filterPriceMin || filterPriceMax || filterAvailable;
   const clearFilters = () => { setFilterBedrooms(''); setFilterProject(''); setFilterFrom(''); setFilterTo(''); setFilterColor(''); setFilterUnits([]); setFilterFloor(''); setFilterPriceMin(''); setFilterPriceMax(''); setFilterAvailable(false); };
@@ -1223,12 +1363,36 @@ export default function Schedule() {
     setPriceModal(true);
   }, [canEditSchedulePricing, priceMap, blockMap]);
 
-  const canBookFromGrid =
-    canWriteSchedule ||
-    isManualReservations ||
-    isWebsiteReservations ||
-    isReservationsManager ||
-    isAdmin;
+  const onCellAction = useCallback(
+    (unit, start, end = start) => {
+      if (!unit) return;
+      const blockSrc = blockMap[unit.id]?.[start];
+      if (priceMode) {
+        if (!canEditSchedulePricing) return;
+        if (start < TODAY) return toast.error('Past nights can’t be repriced');
+        handlePriceClick(unit, start, end);
+        return;
+      }
+      if (start < TODAY && !isAdmin) return toast.error('Past dates can’t be booked');
+      if (blockSrc) {
+        if (canEditSchedulePricing) {
+          handlePriceClick(unit, start, end);
+          return;
+        }
+        return toast.error('This night is blocked');
+      }
+      if (unit.listing_type === 'long_term' && !canReserveLongTermUnits) {
+        return toast.error('Long-term units are booked from the Units (Long Term) page');
+      }
+      openCreateDrawer({
+        unit_id: String(unit.id),
+        check_in: start,
+        check_out: addDays(end, 1),
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [priceMode, canEditSchedulePricing, canReserveLongTermUnits, isAdmin, blockMap, handlePriceClick, TODAY, user?.id]
+  );
 
   const clearDragPaint = useCallback(() => {
     document.querySelectorAll('td.sched-drag-hit').forEach((el) => {
@@ -1265,11 +1429,6 @@ export default function Schedule() {
     }
   }, []);
 
-  const clearRangeAction = useCallback(() => {
-    setRangeAction(null);
-    clearDragPaint();
-  }, [clearDragPaint]);
-
   const finishCellGesture = useCallback(() => {
     if (dragRafRef.current) {
       cancelAnimationFrame(dragRafRef.current);
@@ -1286,58 +1445,16 @@ export default function Schedule() {
     const start = drag.start <= drag.end ? drag.start : drag.end;
     const end = drag.start <= drag.end ? drag.end : drag.start;
 
-    // Click (no drag) → edit when possible, otherwise single-night reserve
-    if (!drag.moved) {
-      clearDragPaint();
-      if (drag.touch && drag.canEdit && drag.canBook) {
-        paintDragRange(drag.unitId, start, end);
-        if (dragHintRef.current) dragHintRef.current.hidden = true;
-        setRangeAction({ unitId: drag.unitId, unit: drag.unit, start, end, canEdit: true, canBook: true });
-        return;
-      }
-      if (drag.canEdit && drag.unit) {
-        handlePriceClick(drag.unit, start);
-      } else if (drag.canBook) {
-        openCreateDrawer({
-          unit_id: String(drag.unitId),
-          check_in: start,
-          check_out: addDays(end, 1),
-        });
-      }
-      return;
+    if (drag.moved) {
+      suppressClickRef.current = true;
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 250);
     }
-
-    // Drag → choose edit or reserve
-    suppressClickRef.current = true;
-    window.setTimeout(() => {
-      suppressClickRef.current = false;
-    }, 250);
-
-    if (drag.canEdit && drag.canBook) {
-      paintDragRange(drag.unitId, start, end);
-      setRangeAction({
-        unitId: drag.unitId,
-        unit: drag.unit,
-        start,
-        end,
-        canEdit: true,
-        canBook: true,
-      });
-      if (dragHintRef.current) dragHintRef.current.hidden = true;
-      return;
-    }
-
     clearDragPaint();
-    if (drag.canBook) {
-      openCreateDrawer({
-        unit_id: String(drag.unitId),
-        check_in: start,
-        check_out: addDays(end, 1),
-      });
-    } else if (drag.canEdit && drag.unit) {
-      handlePriceClick(drag.unit, start, end);
-    }
-  }, [clearDragPaint, handlePriceClick, paintDragRange, isAdmin, user?.id]);
+    if (drag.touch && (drag.afterScroll || Date.now() - drag.t0 > 600)) return;
+    onCellAction(drag.unit, start, drag.moved ? end : start);
+  }, [clearDragPaint, onCellAction]);
 
   useEffect(() => {
     const DRAG_THRESHOLD_PX = 6;
@@ -1371,9 +1488,6 @@ export default function Schedule() {
             return;
           }
         }
-        if (!drag.canBook && !drag.canEdit) {
-          return;
-        }
         drag.moved = true;
         document.body.classList.add('sched-dragging');
         paintDragRange(drag.unitId, drag.start, drag.end);
@@ -1391,7 +1505,7 @@ export default function Schedule() {
         const offset = Math.min(span - 1, Math.max(0, Math.floor(ratio * span)));
         dateStr = addDays(dateStr, offset);
       }
-      if (!dateStr || dateStr < TODAY) return;
+      if (!dateStr || dateStr < drag.minDate) return;
       if (drag.end === dateStr) return;
       drag.end = dateStr;
       if (dragRafRef.current) return;
@@ -1426,28 +1540,10 @@ export default function Schedule() {
   }, [finishCellGesture, paintDragRange, TODAY]);
 
   const startCellGesture = useCallback(
-    (unit, dateStr, event, { canEdit, canBook }) => {
-      if (dateStr < TODAY) return;
-      if (!canEdit && !canBook) return;
+    (unit, dateStr, event) => {
       if (event.button !== 0) return;
-      if (event.pointerType === 'touch') {
-        dragSelectRef.current = {
-          unitId: unit.id,
-          unit,
-          start: dateStr,
-          end: dateStr,
-          originX: event.clientX,
-          originY: event.clientY,
-          moved: false,
-          touch: true,
-          canEdit: Boolean(canEdit),
-          canBook: Boolean(canBook),
-        };
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      dragSelectRef.current = {
+      const minDate = isAdmin && !priceMode ? '0000-00-00' : TODAY;
+      const base = {
         unitId: unit.id,
         unit,
         start: dateStr,
@@ -1455,16 +1551,23 @@ export default function Schedule() {
         originX: event.clientX,
         originY: event.clientY,
         moved: false,
-        canEdit: Boolean(canEdit),
-        canBook: Boolean(canBook),
+        minDate,
+        t0: Date.now(),
       };
+      if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+        dragSelectRef.current = { ...base, touch: true, afterScroll: Date.now() - lastScrollRef.current < 150 };
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      dragSelectRef.current = base;
       try {
         event.currentTarget.setPointerCapture?.(event.pointerId);
       } catch {
         /* ignore */
       }
     },
-    [TODAY]
+    [TODAY, isAdmin, priceMode]
   );
 
   const handleResClick = useCallback((res) => {
@@ -1629,6 +1732,8 @@ export default function Schedule() {
                                                  || blockedNightsInView.some((d) => unitBlocks[d] !== 'reservation');
       if (filterColor === 'owner')             return ur.some(r => r.is_owner_reservation && !r.is_hold && normDate(r.check_in) <= last && normDate(r.check_out) > first);
       if (filterColor === 'sales')             return ur.some(r => !r.is_owner_reservation && !r.is_hold && normDate(r.check_in) <= last && normDate(r.check_out) > first);
+      if (filterColor === 'checkin_today')     return ur.some(r => !r.is_hold && r.status !== 'cancelled' && normDate(r.check_in)  === TODAY);
+      if (filterColor === 'checkout_today')    return ur.some(r => !r.is_hold && r.status !== 'cancelled' && normDate(r.check_out) === TODAY);
       if (filterColor === 'checkout_tomorrow') return ur.some(r => !r.is_hold && normDate(r.check_out) === TOMORROW);
       if (filterColor === 'checkin_tomorrow')  return ur.some(r => !r.is_hold && normDate(r.check_in)  === TOMORROW);
       if (filterColor === 'past')              return ur.some(r => !r.is_hold && normDate(r.check_out) <= TODAY);
@@ -1663,32 +1768,83 @@ export default function Schedule() {
   );
 
   const occupiedNights = useMemo(() => {
-    const dates = displayDates.map(isoDate);
     const occ = {};
     for (const r of allReservations) {
       if (String(r.status || '').toLowerCase() === 'cancelled') continue;
       const ci = normDate(r.check_in);
       const co = normDate(r.check_out);
-      for (const d of dates) {
+      for (const d of dateStrs) {
         if (d >= ci && d < co) (occ[r.unit_id] ||= new Set()).add(d);
       }
     }
     return occ;
-  }, [allReservations, displayDates]);
-  const freeCount = (units, d) =>
-    units.reduce((n, u) => n + (!occupiedNights[u.id]?.has(d) && !blockMap[u.id]?.[d] ? 1 : 0), 0);
+  }, [allReservations, dateStrs]);
+
+  const dayStats = useMemo(() => {
+    const stats = {};
+    for (const d of dateStrs) {
+      let occ = 0;
+      let blocked = 0;
+      for (const u of filteredUnits) {
+        if (occupiedNights[u.id]?.has(d)) occ += 1;
+        else if (blockMap[u.id]?.[d]) blocked += 1;
+      }
+      const sellable = filteredUnits.length - blocked;
+      stats[d] = { occ, sellable, pct: sellable > 0 ? Math.round((occ / sellable) * 100) : 0 };
+    }
+    return stats;
+  }, [dateStrs, filteredUnits, occupiedNights, blockMap]);
+
+  const pctClass = (pct) =>
+    pct >= 100
+      ? 'sch-pct--full'
+      : pct >= 70
+        ? 'sch-pct--high'
+        : pct >= 40
+          ? 'sch-pct--med'
+          : pct > 0
+            ? 'sch-pct--low'
+            : 'sch-pct--zero';
+
+  const resByUnit = useMemo(() => {
+    const map = {};
+    for (const r of allReservations) {
+      (map[r.unit_id] ||= []).push({ ...r, ci: normDate(r.check_in), co: normDate(r.check_out) });
+    }
+    for (const list of Object.values(map)) {
+      list.sort(
+        (a, b) =>
+          Number(a.status === 'cancelled') - Number(b.status === 'cancelled') || a.ci.localeCompare(b.ci)
+      );
+    }
+    return map;
+  }, [allReservations]);
+
+  const todayMoves = useMemo(() => {
+    let arrivals = 0;
+    let departures = 0;
+    for (const r of allReservations) {
+      if (r.is_hold || r.status === 'hold' || r.status === 'cancelled') continue;
+      if (normDate(r.check_in) === TODAY) arrivals += 1;
+      if (normDate(r.check_out) === TODAY) departures += 1;
+    }
+    return { arrivals, departures };
+  }, [allReservations, TODAY]);
 
   const guestQuery = guestSearch.trim().toLowerCase();
   const guestDigits = guestQuery.replace(/\D/g, '');
   const matchesGuest = (r) =>
     String(r.guest_name || '').toLowerCase().includes(guestQuery) ||
     (guestDigits.length >= 3 && String(r.guest_phone || '').replace(/\D/g, '').includes(guestDigits));
-  const barClassFor = (r) =>
-    `${rackBarClass(r, TODAY)}${guestQuery && !matchesGuest(r) ? ' rack-bar--dim' : ''}`;
+  const unitMatches = (u) =>
+    !!guestQuery &&
+    [u.unit_number, u.name, u.title, u.project].some((s) => String(s || '').toLowerCase().includes(guestQuery));
 
   const unitGroups = (() => {
     const rows = guestQuery
-      ? filteredUnits.filter((u) => allReservations.some((r) => r.unit_id === u.id && matchesGuest(r)))
+      ? filteredUnits.filter(
+          (u) => unitMatches(u) || allReservations.some((r) => r.unit_id === u.id && matchesGuest(r))
+        )
       : filteredUnits;
     const map = new Map();
     for (const u of rows) {
@@ -1709,141 +1865,318 @@ export default function Schedule() {
       return next;
     });
 
-  const rangeLabel =
-    filterFrom || filterTo
-      ? `${formatDate(fromStr)} — ${filterTo ? formatDate(filterTo) : formatDate(addDays(toStr, -1))}`
-      : monthLabel;
+  const rangeLabel = monthLabel;
+
+  const scrollTarget = filterFrom || anchor;
+  useLayoutEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const target = scrollTarget < fromStr ? fromStr : scrollTarget;
+    const th = el.querySelector(`th[data-day="${target}"]`);
+    if (!th) return;
+    const unitW = el.querySelector('.sch-corner')?.offsetWidth || 0;
+    el.scrollLeft = Math.max(0, th.offsetLeft - unitW - Math.round(th.offsetWidth / 2));
+  }, [scrollTarget, fromStr, isLoading, scrollNonce]);
+
+  const renderFreeCell = (unit, d) => {
+    const price = getUnitDayPrice(unit, d);
+    const blockSrc = blockMap[unit.id]?.[d];
+    const otaLook = otaBlockLook(blockSrc);
+    const isPast = d < TODAY;
+    const isPriced = price != null && price > 0;
+    const isLongTermUnit = unit.listing_type === 'long_term';
+    let cls = 'sch-cell';
+    if (otaLook) cls += ` ${otaLook.cellBg}`;
+    else if (blockSrc) cls += ' sch-cell--blocked';
+    else if (isPast) cls += ' sch-cell--past';
+    else if (!isPriced) cls += isLongTermUnit ? ' sch-cell--lt' : ' sch-cell--unpriced';
+    else if (weekendDates.has(d)) cls += ' sch-cell--weekend';
+    if (d === TODAY) cls += ' sch-cell--today';
+    const actionable = priceMode
+      ? canEditPrice && !isPast
+      : (!isPast || isAdmin) && !blockSrc && (!isLongTermUnit || canReserveLongTermUnits);
+    if (actionable) cls += ' sch-cell--open';
+    const blockName = otaLook
+      ? otaLook.label
+      : blockSrc === 'owner'
+        ? 'Owner block'
+        : blockSrc === 'reservation' || blockSrc === 'booking'
+          ? 'Reservation'
+          : 'Blocked';
+    return (
+      <td
+        key={d}
+        data-sched-unit={unit.id}
+        data-sched-date={d}
+        className={cls}
+        style={
+          otaLook
+            ? { backgroundImage: otaLook.hatch }
+            : blockSrc
+              ? { backgroundImage: 'repeating-linear-gradient(135deg, rgba(16,33,31,0.1) 0 3px, transparent 3px 7px)' }
+              : undefined
+        }
+        onPointerDown={(e) => startCellGesture(unit, d, e)}
+        title={`${unitDisplay(unit)} · ${formatDate(d)}${
+          blockSrc
+            ? ` · ${blockName}`
+            : isPriced
+              ? ` · ${currency(price)}`
+              : isLongTermUnit
+                ? ' · Long-term'
+                : ' · No price'
+        }${actionable ? (priceMode ? ' · tap to edit price' : ' · tap to book') : ''}`}
+      >
+        {otaLook ? (
+          <span className={`sch-ota ${otaLook.badgeClass}`}>{otaLook.badge}</span>
+        ) : blockSrc ? (
+          <span className="sch-blk">BLK</span>
+        ) : isPriced ? (
+          <span className="sch-price">{shortPrice(price)}</span>
+        ) : isLongTermUnit ? (
+          <span className="sch-price">LT</span>
+        ) : null}
+      </td>
+    );
+  };
+
+  const renderUnitRow = (unit) => {
+    const segs = buildSegments(resByUnit[unit.id] || [], dateStrs);
+    const code = unitDisplay(unit);
+    const name = unit.name || unit.title || '';
+    const unitHit = unitMatches(unit);
+    return (
+      <tr key={unit.id}>
+        <th className="sch-unit" title={[code, name, unit.project].filter(Boolean).join(' · ')}>
+          <div className="sch-unit-inner">
+            {bulkMode && (
+              <input
+                type="checkbox"
+                checked={selectedUnitIds.has(unit.id)}
+                onChange={(e) =>
+                  setSelectedUnitIds((prev) => {
+                    const next = new Set(prev);
+                    e.target.checked ? next.add(unit.id) : next.delete(unit.id);
+                    return next;
+                  })
+                }
+                className="h-4 w-4 flex-shrink-0 accent-[#2f5d58]"
+              />
+            )}
+            <div className="sch-unit-text">
+              <span className="sch-unit-code">{code}</span>
+              <span className="sch-unit-name">{name && name !== code ? name : unit.project || '—'}</span>
+            </div>
+            <span className="sch-unit-tag">{unit.bedrooms > 0 ? `${unit.bedrooms} BR` : 'Studio'}</span>
+            {unit.photos_link && (
+              <a
+                href={unit.photos_link}
+                target="_blank"
+                rel="noreferrer"
+                className="sch-unit-link"
+                title="View photos"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink />
+              </a>
+            )}
+          </div>
+        </th>
+        {segs.map((seg) => {
+          if (seg.type === 'free') return renderFreeCell(unit, seg.date);
+          const r = seg.res;
+          const isHold = r.is_hold || r.status === 'hold';
+          const dim = guestQuery && !unitHit && !matchesGuest(r);
+          const cls = [
+            'sch-bar',
+            schBarClass(r, TODAY),
+            seg.clipStart ? 'sch-bar--clip-l' : '',
+            seg.clipEnd ? 'sch-bar--clip-r' : '',
+            dim ? 'sch-bar--dim' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          return (
+            <td key={seg.date} colSpan={seg.span} className="sch-cell sch-cell--res">
+              <button type="button" className={cls} title={schTip(r)} onClick={() => handleResClick(r)}>
+                {seg.span >= 2 && <span className="sch-bar-id">{resBadge(r)}</span>}
+                <span className="sch-bar-name">{r.guest_name || (isHold ? 'Hold' : 'Guest')}</span>
+                {seg.span >= 4 && <span className="sch-bar-meta">{nightsBetween(r.ci, r.co)}n</span>}
+              </button>
+            </td>
+          );
+        })}
+      </tr>
+    );
+  };
 
   return (
-    <div className="rack space-y-1">
-      <div className="rack-window">
-        <div className="rack-titlebar">
-          <CalendarRange className="h-4 w-4 flex-shrink-0" />
-          <span>Schedule</span>
-          <span className="rack-titlebar-sub">{rangeLabel}</span>
-        </div>
-
-        <div className="rack-menubar">
-          {canWrite && (
-            <>
-              <button type="button" onClick={() => openCreateDrawer()} className="rack-btn rack-btn--primary">
-                <Plus /> <span className="sm:hidden">New</span>
-                <span className="hidden sm:inline">New reservation</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setHoldPrefill({}); setHoldModal(true); }}
-                className="rack-btn"
-              >
-                <Hourglass /> Hold
-              </button>
-              <span className="rack-sep" />
-            </>
-          )}
-          <span className="rack-nav order-first sm:order-none">
-            <button type="button" onClick={goPrevMonth} className="rack-btn px-2.5" aria-label="Previous month">
+    <div className={`sch${priceMode ? ' sch--price' : ''}`}>
+      <div className="sch-toolbar">
+        <div className="sch-toolbar-nav">
+          <div className="sch-datebox">
+            <button type="button" className="sch-datebox-arrow" onClick={goPrevMonth} aria-label="Previous month">
               <ChevronLeft />
             </button>
-            <span className="rack-field">{monthLabel}</span>
-            <button type="button" onClick={goNextMonth} className="rack-btn px-2.5" aria-label="Next month">
+            <label className="sch-datebox-main">
+              <span className="sch-datebox-label">
+                <CalendarRange />
+                {anchorLabel}
+              </span>
+              <span className="sch-datebox-sub">{rangeLabel}</span>
+              <input
+                type="date"
+                value={anchor}
+                onChange={(e) => jumpTo(e.target.value)}
+                onClick={(e) => {
+                  try {
+                    e.currentTarget.showPicker?.();
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                aria-label="Jump to date"
+              />
+            </label>
+            <button type="button" className="sch-datebox-arrow" onClick={goNextMonth} aria-label="Next month">
               <ChevronRight />
             </button>
-            <button type="button" onClick={goThisMonth} className="rack-btn" title="Jump to this month">
+          </div>
+          <div className="sch-pills" role="group" aria-label="Date range">
+            <button
+              type="button"
+              className="sch-pill"
+              aria-pressed={anchor === TODAY && !filterFrom && !filterTo}
+              onClick={goThisMonth}
+            >
               Today
             </button>
-          </span>
-          <span className="rack-sep" />
-          <span className="rack-seg">
-            {[1, 2, 3].map((n) => (
+            {SPAN_OPTIONS.map((n) => (
               <button
                 key={n}
                 type="button"
-                onClick={() => setSpanMonths(n)}
+                className="sch-pill"
                 aria-pressed={spanMonths === n}
-                className="rack-btn"
+                onClick={() => setSpanMonths(n)}
+                title={`Show ${n} month${n === 1 ? '' : 's'} ahead`}
               >
                 {n}
-                <span className="sm:hidden">M</span>
-                <span className="hidden sm:inline">{n === 1 ? ' Month' : ' Months'}</span>
+                <span className="sch-only-phone">M</span>
+                <span className="sch-hide-phone">{n === 1 ? ' month' : ' months'}</span>
               </button>
             ))}
-          </span>
+          </div>
+        </div>
+
+        <div className="sch-toolbar-actions">
+          <button type="button" className="sch-btn sch-btn--primary" onClick={() => openCreateDrawer()}>
+            <Plus /> New booking
+          </button>
+          {canWrite && (
+            <button
+              type="button"
+              className="sch-btn"
+              onClick={() => {
+                setHoldPrefill({});
+                setHoldModal(true);
+              }}
+            >
+              <Hourglass /> Hold
+            </button>
+          )}
           {canEditPrice && (
-            <>
-              <span className="rack-sep" />
-              {!bulkMode ? (
+            <button
+              type="button"
+              className="sch-btn"
+              aria-pressed={priceMode}
+              onClick={() => setPriceMode((v) => !v)}
+            >
+              <DollarSign /> Prices
+            </button>
+          )}
+          {canEditPrice &&
+            (!bulkMode ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setBulkMode(true);
+                  setSelectedUnitIds(new Set());
+                }}
+                className="sch-btn"
+              >
+                <Edit2 /> Bulk price
+              </button>
+            ) : (
+              <>
+                <span className="sch-bulk-count">{selectedUnitIds.size} selected</span>
                 <button
                   type="button"
-                  onClick={() => { setBulkMode(true); setSelectedUnitIds(new Set()); }}
-                  className="rack-btn"
+                  onClick={() => setSelectedUnitIds(new Set(filteredUnits.map((u) => u.id)))}
+                  className="sch-btn"
                 >
-                  <Edit2 /> Bulk price
+                  All
                 </button>
-              ) : (
-                <>
-                  <span className="px-1 font-bold">{selectedUnitIds.size} selected</span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedUnitIds(new Set(filteredUnits.map((u) => u.id)))}
-                    className="rack-btn"
-                  >
-                    All
-                  </button>
-                  <button type="button" onClick={() => setSelectedUnitIds(new Set())} className="rack-btn">
-                    Clear
-                  </button>
-                  <button
-                    type="button"
-                    disabled={selectedUnitIds.size === 0}
-                    onClick={() => setBulkPriceModal(true)}
-                    className="rack-btn rack-btn--primary"
-                  >
-                    Apply price
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setBulkMode(false); setSelectedUnitIds(new Set()); }}
-                    className="rack-btn"
-                  >
-                    Done
-                  </button>
-                </>
-              )}
-            </>
-          )}
-          <span className="rack-sep rack-mobile-only" />
+                <button type="button" onClick={() => setSelectedUnitIds(new Set())} className="sch-btn">
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedUnitIds.size === 0}
+                  onClick={() => setBulkPriceModal(true)}
+                  className="sch-btn sch-btn--primary"
+                >
+                  Apply price
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBulkMode(false);
+                    setSelectedUnitIds(new Set());
+                  }}
+                  className="sch-btn"
+                >
+                  Done
+                </button>
+              </>
+            ))}
           <button
             type="button"
-            className="rack-btn rack-mobile-only"
+            className="sch-btn"
             aria-pressed={filtersOpen}
             onClick={() => setFiltersOpen((v) => !v)}
           >
-            Filters{hasFilters ? ' •' : ''}
+            <SlidersHorizontal /> Filters{hasFilters ? ' •' : ''}
           </button>
-          <span className="rack-sep" />
-          <label className="rack-search">
-            <Search />
-            <input
-              type="search"
-              value={guestSearch}
-              onChange={(e) => setGuestSearch(e.target.value)}
-              placeholder="Find guest or phone"
-              aria-label="Find guest by name or phone"
-            />
-          </label>
         </div>
 
-        <fieldset className={`rack-group relative z-40 ${filtersOpen ? '' : 'hidden lg:block'}`}>
-          <legend>Filters{hasFilters ? ' (active)' : ''}</legend>
+        <label className="sch-search">
+          <Search />
+          <input
+            type="search"
+            value={guestSearch}
+            onChange={(e) => setGuestSearch(e.target.value)}
+            placeholder="Search unit, guest or phone"
+            aria-label="Search by unit, guest name or phone"
+          />
+          {guestSearch && (
+            <button type="button" onClick={() => setGuestSearch('')} aria-label="Clear search">
+              <X />
+            </button>
+          )}
+        </label>
+      </div>
+
+      {filtersOpen && (
+        <div className="sch-filters">
           <div className="flex flex-wrap items-end gap-3">
             <div>
-              <label className="label text-xs">Project</label>
+              <label className="label text-xs">Destination</label>
               <SearchableSelect
                 className="w-44"
                 value={filterProject}
                 onChange={(v) => { setFilterProject(v); setFilterUnits([]); }}
-                placeholder="All projects"
-                options={[{ value: '', label: 'All projects' }, ...projectsList.map((p) => ({ value: p, label: p }))]}
+                placeholder="All destinations"
+                options={[{ value: '', label: 'All destinations' }, ...projectsList.map((p) => ({ value: p, label: p }))]}
               />
             </div>
             <div>
@@ -1888,7 +2221,7 @@ export default function Schedule() {
                 type="button"
                 onClick={() => { setUnitPickerOpen((v) => !v); setUnitPickerSearch(''); }}
                 className={`input w-44 flex cursor-pointer items-center justify-between gap-2 text-left ${
-                  filterUnits.length > 0 ? 'border-[var(--pms-accent,#2f5d58)] bg-[var(--pms-accent-soft,rgba(47,93,88,0.08))]' : ''
+                  filterUnits.length > 0 ? 'border-[#2f5d58] bg-[#eef4f3]' : ''
                 }`}
               >
                 <span className="truncate text-sm">
@@ -1905,7 +2238,7 @@ export default function Schedule() {
                       placeholder="Search units…"
                       value={unitPickerSearch}
                       onChange={(e) => setUnitPickerSearch(e.target.value)}
-                      className="flex-1 rounded-lg border border-ch-line px-2 py-1 text-xs outline-none focus:border-[var(--pms-accent,#2f5d58)]"
+                      className="flex-1 rounded-lg border border-ch-line px-2 py-1 text-xs outline-none focus:border-[#2f5d58]"
                       onClick={(e) => e.stopPropagation()}
                     />
                     {filterUnits.length > 0 && (
@@ -1936,7 +2269,7 @@ export default function Schedule() {
                         <label
                           key={u.id}
                           className={`flex cursor-pointer items-center gap-2.5 px-3 py-2 transition-colors hover:bg-slate-50 ${
-                            isChecked ? 'bg-[var(--pms-accent-soft,rgba(47,93,88,0.08))]' : ''
+                            isChecked ? 'bg-[#eef4f3]' : ''
                           }`}
                         >
                           <input
@@ -1949,7 +2282,7 @@ export default function Schedule() {
                                   : [...prev, String(u.id)]
                               )
                             }
-                            className="h-4 w-4 flex-shrink-0 rounded border-ch-line accent-[var(--pms-accent,#2f5d58)]"
+                            className="h-4 w-4 flex-shrink-0 rounded border-ch-line accent-[#2f5d58]"
                           />
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium text-ch-pine">{unitDisplay(u)}</div>
@@ -1966,18 +2299,6 @@ export default function Schedule() {
                 </div>
               )}
             </div>
-            <div className="flex flex-col justify-end">
-              <label className="label text-xs opacity-0 select-none">_</label>
-              <button
-                type="button"
-                onClick={() => setFilterAvailable((v) => !v)}
-                aria-pressed={filterAvailable}
-                className="rack-btn"
-              >
-                <input type="checkbox" readOnly checked={filterAvailable} className="h-3 w-3" tabIndex={-1} />
-                Available only
-              </button>
-            </div>
             <div>
               <label className="label text-xs">Stay type</label>
               <SearchableSelect
@@ -1988,435 +2309,163 @@ export default function Schedule() {
                 options={COLOR_FILTERS.map((cf) => ({ value: cf.value, label: cf.label }))}
               />
             </div>
+            <button
+              type="button"
+              onClick={() => setFilterAvailable((v) => !v)}
+              aria-pressed={filterAvailable}
+              className="sch-btn"
+            >
+              <input type="checkbox" readOnly checked={filterAvailable} className="h-3.5 w-3.5 accent-[#2f5d58]" tabIndex={-1} />
+              Available only
+            </button>
             {hasFilters && (
-              <button type="button" onClick={clearFilters} className="rack-btn self-end">
-                <X />
-                Clear
+              <button type="button" onClick={clearFilters} className="sch-btn">
+                <X /> Clear
               </button>
             )}
           </div>
-        </fieldset>
+        </div>
+      )}
 
-        <div ref={dragHintRef} hidden className="rack-hint sticky top-2 z-20 pointer-events-none m-2" />
-
-        {rangeAction ? (
-          <div className="rack-hint rack-action flex flex-wrap items-center justify-between gap-2">
-            <span className="font-semibold">
-              {rangeAction.unit ? `${unitDisplay(rangeAction.unit)} · ` : ''}
-              {formatDate(rangeAction.start)}
-              {rangeAction.end !== rangeAction.start ? ` → ${formatDate(rangeAction.end)}` : ''}
+      <div className="sch-legend">
+        <div className="sch-legend-moves">
+          <button
+            type="button"
+            className="sch-move sch-move--in"
+            aria-pressed={filterColor === 'checkin_today'}
+            onClick={() => setFilterColor((c) => (c === 'checkin_today' ? '' : 'checkin_today'))}
+          >
+            Arrivals today <b>{todayMoves.arrivals}</b>
+          </button>
+          <button
+            type="button"
+            className="sch-move sch-move--out"
+            aria-pressed={filterColor === 'checkout_today'}
+            onClick={() => setFilterColor((c) => (c === 'checkout_today' ? '' : 'checkout_today'))}
+          >
+            Departures today <b>{todayMoves.departures}</b>
+          </button>
+        </div>
+        <div className="sch-legend-items">
+          {SCH_LEGEND.map((item) => (
+            <span key={item.label}>
+              <i className={`sch-dot ${item.cls}`} />
+              {item.label}
             </span>
-            <span className="flex w-full flex-wrap gap-2 sm:w-auto">
-              <button type="button" className="rack-btn" onClick={clearRangeAction}>
-                Cancel
-              </button>
-              {rangeAction.canEdit ? (
-                <button
-                  type="button"
-                  className="rack-btn"
-                  onClick={() => {
-                    const { unit, start, end } = rangeAction;
-                    clearRangeAction();
-                    if (unit) handlePriceClick(unit, start, end);
-                  }}
-                >
-                  <DollarSign /> Price / block
-                </button>
-              ) : null}
-              {rangeAction.canBook ? (
-                <button
-                  type="button"
-                  className="rack-btn rack-btn--primary"
-                  onClick={() => {
-                    const { unitId, start, end } = rangeAction;
-                    clearRangeAction();
-                    openCreateDrawer({
-                      unit_id: String(unitId),
-                      check_in: start,
-                      check_out: addDays(end, 1),
-                    });
-                  }}
-                >
-                  <Plus /> Reserve
-                </button>
-              ) : null}
-            </span>
-          </div>
-        ) : null}
+          ))}
+          <span>
+            <b className="sch-ota bg-[#FF5A5F] text-white">AB</b>Airbnb
+          </span>
+          <span>
+            <b className="sch-ota bg-[#003580] text-white">BK</b>Booking.com
+          </span>
+        </div>
+      </div>
 
+      {priceMode && (
+        <div className="sch-banner">
+          <DollarSign />
+          <span>Price mode: tap a night, or drag across nights, to change prices or block them.</span>
+          <button type="button" className="sch-btn" onClick={() => setPriceMode(false)}>
+            Done
+          </button>
+        </div>
+      )}
+
+      <div ref={dragHintRef} hidden className="sch-draghint" />
+
+      <div className="sch-grid-card">
         {isLoading ? (
-          <div className="rack-sheet py-10">
+          <div className="py-16">
             <LoadingSpinner />
           </div>
         ) : (
-          <div className="rack-sheet relative z-0">
+          <div
+            ref={gridRef}
+            className="sch-grid"
+            onScroll={() => {
+              lastScrollRef.current = Date.now();
+            }}
+          >
             <table
-              className="rack-table"
-              style={{ width: `calc(var(--rack-head-w) + ${displayDates.length} * var(--rack-cell-w))` }}
+              className="sch-table"
+              style={{ width: `calc(var(--sch-unit-w) + ${dateStrs.length} * var(--sch-cell-w))` }}
             >
               <colgroup>
-                <col style={{ width: 'var(--rack-head-w)' }} />
-                {displayDates.map((d) => (
-                  <col key={isoDate(d)} style={{ width: CELL_W }} />
+                <col style={{ width: 'var(--sch-unit-w)' }} />
+                {dateStrs.map((d) => (
+                  <col key={d} style={{ width: 'var(--sch-cell-w)' }} />
                 ))}
               </colgroup>
-              <thead className="sticky top-0 z-30">
-                <tr className="rack-month">
-                  <th rowSpan={2} className="rack-rowhead sticky left-0 z-40 align-bottom">
-                    <div className="rack-rowhead-inner" style={{ height: 62 }}>
-                      <span className="rack-col-code">Unit</span>
-                      <span className="rack-col-name">Name</span>
-                      <span className="rack-col-br">BR</span>
-                    </div>
+              <thead>
+                <tr className="sch-months">
+                  <th rowSpan={2} className="sch-corner">
+                    <span className="sch-corner-title">Units</span>
+                    <span className="sch-corner-count">{visibleUnitCount}</span>
                   </th>
                   {monthGroups.map((g) => (
                     <th key={g.label} colSpan={g.span}>
-                      <span className="sticky inline-block left-[116px] sm:left-[260px]">{g.label}</span>
+                      <span className="sch-month-label">{g.label}</span>
                     </th>
                   ))}
                 </tr>
-                <tr>
-                  {displayDates.map((d) => {
-                    const dStr = isoDate(d);
+                <tr className="sch-days">
+                  {displayDates.map((d, idx) => {
+                    const dStr = dateStrs[idx];
+                    const st = dayStats[dStr] || { occ: 0, sellable: 0, pct: 0 };
                     const cls =
-                      dStr === TODAY ? 'rack-today-head' : weekendDates.has(dStr) ? 'rack-weekend' : '';
+                      dStr === TODAY
+                        ? 'sch-day--today'
+                        : dStr < TODAY
+                          ? 'sch-day--past'
+                          : weekendDates.has(dStr)
+                            ? 'sch-day--weekend'
+                            : '';
                     return (
                       <th
                         key={dStr}
-                        style={{ minWidth: CELL_W, width: CELL_W }}
-                        className={`rack-day ${cls}`}
-                        title={formatDate(dStr)}
+                        data-day={dStr}
+                        className={`sch-day ${cls}`}
+                        title={`${formatDate(dStr)} · ${st.occ} of ${st.sellable} booked`}
                       >
-                        {d.getDate()}
-                        <span className="rack-dow">
-                          {d.toLocaleDateString('en-GB', { weekday: 'short' }).slice(0, 2)}
-                        </span>
-                      </th>
-                    );
-                  })}
-                </tr>
-                <tr className="rack-avail">
-                  <th className="rack-rowhead sticky left-0 z-40">
-                    <div className="rack-rowhead-inner">
-                      <span className="rack-col-code">Free units</span>
-                    </div>
-                  </th>
-                  {displayDates.map((d) => {
-                    const dStr = isoDate(d);
-                    const free = freeCount(filteredUnits, dStr);
-                    const total = filteredUnits.length;
-                    const occPct = total ? Math.round(((total - free) / total) * 100) : 0;
-                    return (
-                      <th
-                        key={dStr}
-                        className={free === 0 && total ? 'rack-free--full' : ''}
-                        title={`${formatDate(dStr)} · ${free} of ${total} free · ${occPct}% occupied`}
-                      >
-                        {free}
+                        <span className="sch-dow">{d.toLocaleDateString('en-GB', { weekday: 'short' })}</span>
+                        <span className="sch-dnum">{d.getDate()}</span>
+                        {filteredUnits.length > 0 && (
+                          <span className={`sch-pct ${pctClass(st.pct)}`}>{st.pct}%</span>
+                        )}
                       </th>
                     );
                   })}
                 </tr>
               </thead>
               <tbody>
-                {unitGroups.map((g) => [
-                  <tr key={`grp-${g.name}`} className="rack-group-row">
-                    <td className="rack-rowhead sticky left-0 z-10">
-                      <button type="button" className="rack-group-toggle" onClick={() => toggleGroup(g.name)}>
-                        <ChevronRight className={collapsedGroups.has(g.name) ? '' : 'rotate-90'} />
-                        <span className="truncate">{g.name}</span>
-                        <span className="rack-group-count">{g.units.length}</span>
-                      </button>
-                    </td>
-                    {displayDates.map((d) => {
-                      const dStr = isoDate(d);
-                      const free = freeCount(g.units, dStr);
-                      return (
-                        <td
-                          key={dStr}
-                          className={`rack-free ${free === 0 ? 'rack-free--full' : ''}`}
-                          title={`${g.name} · ${formatDate(dStr)} · ${free} of ${g.units.length} free`}
-                        >
-                          {free}
-                        </td>
-                      );
-                    })}
-                  </tr>,
-                  ...(collapsedGroups.has(g.name) ? [] : g.units).map((unit) => {
-                  const cells = buildRow(unit.id, displayDates, allReservations);
-                  const name = unit.name || unit.title || '';
-                  return (
-                    <tr key={unit.id}>
-                      <td className="rack-rowhead sticky left-0 z-10">
-                        <div
-                          className="rack-rowhead-inner"
-                          title={[unitDisplay(unit), name, unit.project].filter(Boolean).join(' · ')}
-                        >
-                          <span className="rack-col-code">
-                            <span className="rack-code">
-                            {bulkMode && (
-                              <input
-                                type="checkbox"
-                                checked={selectedUnitIds.has(unit.id)}
-                                onChange={(e) =>
-                                  setSelectedUnitIds((prev) => {
-                                    const next = new Set(prev);
-                                    e.target.checked ? next.add(unit.id) : next.delete(unit.id);
-                                    return next;
-                                  })
-                                }
-                                className="h-4 w-4 flex-shrink-0 accent-[#217346]"
-                              />
-                            )}
-                              <span className="truncate">{unitDisplay(unit)}</span>
-                            </span>
-                            {name && <span className="rack-subname">{name}</span>}
-                          </span>
-                          <span className="rack-col-name gap-1">
-                            <span>{name || unit.project || '—'}</span>
-                            {unit.photos_link && (
-                              <a
-                                href={unit.photos_link}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="ml-auto flex-shrink-0 text-[#185c37]"
-                                title="View photos"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                              </a>
-                            )}
-                          </span>
-                          <span className="rack-col-br">
-                            {unit.bedrooms > 0 ? unit.bedrooms : 'S'}
-                          </span>
-                        </div>
-                      </td>
-
-                      {cells.map((cell, j) => {
-                        if (cell.type === 'price') {
-                          const price = getUnitDayPrice(unit, cell.date);
-                          const blockSrc = blockMap[unit.id]?.[cell.date];
-                          const otaLook = otaBlockLook(blockSrc);
-                          const isToday = cell.date === TODAY;
-                          const isPast = cell.date < TODAY;
-                          const isPriced = price != null && price > 0;
-                          const isLongTermUnit = unit.listing_type === 'long_term';
-                          const hasCheckinTomorrow =
-                            cell.date === TODAY &&
-                            allReservations.some(
-                              (r) => r.unit_id === unit.id && normDate(r.check_in) === TOMORROW
-                            );
-                          const hatch = otaLook
-                            ? otaLook.hatch
-                            : blockSrc
-                              ? 'repeating-linear-gradient(135deg, rgba(0,0,0,0.12) 0 3px, transparent 3px 6px)'
-                              : undefined;
-                          let cellCls = 'rack-cell';
-                          if (otaLook) cellCls += ` ${otaLook.cellBg} ${otaLook.ringClass}`;
-                          else if (blockSrc) cellCls += ' rack-cell--blocked';
-                          else if (isPast) cellCls += ' rack-cell--past';
-                          else if (hasCheckinTomorrow) cellCls += ' rack-cell--arrival-tomorrow';
-                          else if (isPriced) cellCls += weekendDates.has(cell.date) ? ' rack-cell--weekend' : '';
-                          else if (isLongTermUnit) cellCls += ' rack-cell--lt';
-                          else cellCls += ' rack-cell--unpriced';
-                          if (isToday) cellCls += ' rack-cell--today';
-                          const canEditCell = canEditPrice && !isPast;
-                          const canBookCell =
-                            canBookFromGrid &&
-                            (!isLongTermUnit || canReserveLongTermUnits) &&
-                            !isPast &&
-                            !blockSrc &&
-                            !otaLook;
-                          const cellClickable = canEditCell || canBookCell;
-                          if (cellClickable) cellCls += ' rack-cell--clickable';
-                          return (
-                            <td
-                              key={j}
-                              data-sched-unit={unit.id}
-                              data-sched-date={cell.date}
-                              data-sched-bookable={canBookCell ? '1' : '0'}
-                              style={{
-                                minWidth: CELL_W,
-                                width: CELL_W,
-                                ...(hatch ? { backgroundImage: hatch } : {}),
-                                userSelect: 'none',
-                              }}
-                              className={cellCls}
-                              onPointerDown={(e) => {
-                                startCellGesture(unit, cell.date, e, {
-                                  canEdit: canEditCell,
-                                  canBook: canBookCell,
-                                });
-                              }}
-                              title={
-                                canEditCell && canBookCell
-                                  ? `Click to edit · Drag to choose Edit or Reserve · ${formatDate(cell.date)}`
-                                  : canBookCell
-                                    ? `Drag to book · ${formatDate(cell.date)}`
-                                    : canEditCell
-                                      ? `Click or drag to edit · ${formatDate(cell.date)}`
-                                      : blockSrc
-                                        ? `${
-                                          otaLook
-                                            ? otaLook.label
-                                            : blockSrc === 'owner'
-                                              ? 'Owner'
-                                              : blockSrc === 'reservation' || blockSrc === 'booking'
-                                                ? 'Reservation'
-                                                : 'Admin'
-                                        } · ${formatDate(cell.date)}`
-                                        : isPriced
-                                          ? `${currency(price)} · ${formatDate(cell.date)}`
-                                          : isLongTermUnit
-                                            ? `Long-term${unit.price_monthly > 0 ? ` · ${currency(unit.price_monthly)} / month` : ''} · ${formatDate(cell.date)}`
-                                            : `No price — guests see unavailable · ${formatDate(cell.date)}`
-                              }
-                            >
-                              {otaLook ? (
-                                <span className={`px-0.5 text-[8px] font-black tracking-widest ${otaLook.badgeClass}`}>
-                                  {otaLook.badge}
-                                </span>
-                              ) : blockSrc && !isPriced ? (
-                                <span className="font-bold">BLK</span>
-                              ) : isPriced ? (
-                                shortPrice(price)
-                              ) : isLongTermUnit ? (
-                                'LT'
-                              ) : null}
-                            </td>
-                          );
-                        }
-
-                        if (cell.type === 'turnover') {
-                          const outCls = barClassFor(cell.outRes);
-                          const inCls = barClassFor(cell.inRes);
-                          return (
-                            <td
-                              key={j}
-                              data-sched-unit={unit.id}
-                              data-sched-date={cell.date}
-                              style={{ minWidth: CELL_W, width: CELL_W }}
-                              className="rack-cell"
-                            >
-                              <div className="rack-split">
-                                <div
-                                  className={`rack-bar rack-bar--end w-1/2 ${outCls}`}
-                                  title={rackTip(cell.outRes)}
-                                  onClick={() => handleResClick(cell.outRes)}
-                                />
-                                <div
-                                  className={`rack-bar rack-bar--start w-1/2 ${inCls}`}
-                                  title={rackTip(cell.inRes)}
-                                  onClick={() => handleResClick(cell.inRes)}
-                                />
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        const barCls = barClassFor(cell.res);
-                        const tipText = rackTip(cell.res);
-
-                        if (cell.type === 'checkin' || cell.type === 'checkout') {
-                          const openPrice = getUnitDayPrice(unit, cell.date);
-                          const isPastOpen = cell.date < TODAY;
-                          const openHalf = (
-                            <div
-                              className={`rack-half ${canEditPrice && !isPastOpen ? 'cursor-cell' : ''} ${
-                                isPastOpen ? 'text-[#a8a8a8]' : ''
-                              }`}
-                              title={
-                                cell.type === 'checkin'
-                                  ? `Open morning — previous guest can check out · ${formatDate(cell.date)}`
-                                  : `Open for next check-in · ${formatDate(cell.date)}`
-                              }
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (canEditPrice && !isPastOpen) handlePriceClick(unit, cell.date);
-                              }}
-                            >
-                              {openPrice != null && openPrice > 0 ? shortPrice(openPrice) : ''}
-                            </div>
-                          );
-                          const barHalf = (
-                            <div
-                              className={`rack-bar w-1/2 ${
-                                cell.type === 'checkin' ? 'rack-bar--start' : 'rack-bar--end'
-                              } ${barCls}`}
-                              title={tipText}
-                              onClick={() => handleResClick(cell.res)}
-                            />
-                          );
-                          return (
-                            <td
-                              key={j}
-                              data-sched-unit={unit.id}
-                              data-sched-date={cell.date}
-                              style={{ minWidth: CELL_W, width: CELL_W }}
-                              className={`rack-cell ${cell.date === TODAY ? 'rack-cell--today' : ''}`}
-                            >
-                              <div className="rack-split">
-                                {cell.type === 'checkin' ? (
-                                  <>
-                                    {openHalf}
-                                    {barHalf}
-                                  </>
-                                ) : (
-                                  <>
-                                    {barHalf}
-                                    {openHalf}
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        if (cell.type === 'mid') {
-                          return (
-                            <td
-                              key={j}
-                              data-sched-unit={unit.id}
-                              data-sched-date={cell.date}
-                              data-sched-span={cell.span}
-                              colSpan={cell.span}
-                              style={{ minWidth: `calc(${CELL_W} * ${cell.span})` }}
-                              className="rack-cell"
-                            >
-                              <div
-                                className={`rack-bar ${barCls}`}
-                                title={tipText}
-                                onClick={() => handleResClick(cell.res)}
-                              >
-                                <span className="rack-bar-name">{cell.res.guest_name}</span>
-                                {cell.span > 3 && (
-                                  <span className="rack-bar-extra max-w-[72px] truncate">
-                                    {cell.res.is_owner_reservation ? 'Owner' : cell.res.sales_person_name || ''}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        return null;
-                      })}
-                    </tr>
-                  );
-                }),
-                ])}
+                {unitGroups.map((g) => {
+                  const collapsed = collapsedGroups.has(g.name);
+                  return [
+                    <tr key={`grp-${g.name}`} className="sch-group">
+                      <th className="sch-unit sch-unit--group">
+                        <button type="button" className="sch-group-toggle" onClick={() => toggleGroup(g.name)}>
+                          <ChevronRight className={collapsed ? '' : 'rotate-90'} />
+                          <span className="truncate">{g.name}</span>
+                          <span className="sch-group-count">{g.units.length}</span>
+                        </button>
+                      </th>
+                      <td colSpan={dateStrs.length} />
+                    </tr>,
+                    ...(collapsed ? [] : g.units.map(renderUnitRow)),
+                  ];
+                })}
                 {visibleUnitCount === 0 && (
                   <tr>
-                    <td colSpan={displayDates.length + 1} className="px-6 py-16 text-center">
-                      <p className="font-bold">
+                    <td colSpan={dateStrs.length + 1} className="sch-empty">
+                      <p className="font-bold text-ch-ink">
                         {(data?.units || []).length === 0
                           ? 'No units yet'
                           : guestQuery
-                            ? `No guest matching “${guestSearch.trim()}” in these dates`
+                            ? `Nothing matches “${guestSearch.trim()}” in these dates`
                             : 'No matching units'}
                       </p>
-                      <p className="mt-1 text-[#555]">
+                      <p className="mt-1">
                         {(data?.units || []).length === 0
                           ? 'Add units in the Units page to start scheduling.'
                           : 'Try clearing filters or widening the date range.'}
@@ -2428,37 +2477,18 @@ export default function Schedule() {
             </table>
           </div>
         )}
-
-        <div className="rack-statusbar">
-          <span>{filteredUnits.length} units</span>
-          {RACK_LEGEND.map((item) => (
-            <span key={item.label}>
-              <i className={`rack-swatch ${item.cls}`} />
-              {item.label}
-            </span>
-          ))}
-          {[
-            { badge: 'AB', className: 'bg-[#FF5A5F] text-white', label: 'Airbnb outside' },
-            { badge: 'BK', className: 'bg-[#003580] text-white', label: 'Booking.com outside' },
-          ].map((item) => (
-            <span key={item.badge}>
-              <b className={`px-0.5 text-[8px] tracking-widest ${item.className}`}>{item.badge}</b>
-              {item.label}
-            </span>
-          ))}
-          <span className="ml-auto hidden md:inline-flex">
-            {canEditPrice && canBookFromGrid
-              ? 'Click a night to edit · Drag for Edit or Reserve'
-              : canBookFromGrid
-                ? 'Drag across open nights to reserve'
-                : canEditPrice
-                  ? 'Click or drag nights to edit prices'
-                  : 'Click a reservation to see it'}
+        <div className="sch-foot">
+          <span>
+            {visibleUnitCount} units · {rangeLabel}
+          </span>
+          <span className="sch-hide-phone">
+            {priceMode
+              ? 'Tap or drag nights to edit prices'
+              : 'Tap an open night to book · drag to pick several nights · tap a booking for details'}
           </span>
         </div>
       </div>
 
-      
       <PriceEditorModal
         open={priceModal}
         onClose={() => setPriceModal(false)}
