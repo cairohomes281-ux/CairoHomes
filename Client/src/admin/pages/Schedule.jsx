@@ -1010,13 +1010,19 @@ export default function Schedule() {
   const [holdDetailId,      setHoldDetailId]      = useState(null);
 
   
-  const defaultFrom = addMonths(anchor, -1);
-  const defaultTo   = addMonths(anchor, spanMonths);
+  const defaultFrom = anchor < TODAY ? TODAY : anchor;
+  const defaultTo   = addMonths(defaultFrom, spanMonths);
 
   
   
   
   const { fromStr, toStr } = useMemo(() => {
+    const range = pickRange();
+    const from = range.fromStr < TODAY ? TODAY : range.fromStr;
+    const to = range.toStr <= from ? addMonths(from, spanMonths) : range.toStr;
+    return { fromStr: from, toStr: to };
+
+    function pickRange() {
     const monthStart = (dateStr) => {
       const [y, m] = String(dateStr).split('-').map(Number);
       return isoDate(new Date(y, m - 1, 1));
@@ -1038,7 +1044,8 @@ export default function Schedule() {
       return { fromStr: monthStart(filterTo), toStr: addDays(filterTo, 1) };
     }
     return { fromStr: defaultFrom, toStr: defaultTo };
-  }, [filterFrom, filterTo, defaultFrom, defaultTo, spanMonths]);
+    }
+  }, [filterFrom, filterTo, defaultFrom, defaultTo, spanMonths, TODAY]);
 
   const displayDates = useMemo(() => {
     const days = [];
@@ -1072,7 +1079,7 @@ export default function Schedule() {
   const { data, isLoading } = useQuery({
     queryKey: ['schedule', fromStr, toStr, filterBedrooms, filterProject],
     queryFn: () => api.get('/reservations/schedule', {
-      params: { from_date: fromStr, to_date: toStr, bedrooms: filterBedrooms || undefined, project: filterProject || undefined },
+      params: { from_date: addDays(fromStr, -1), to_date: toStr, bedrooms: filterBedrooms || undefined, project: filterProject || undefined },
     }).then(r => r.data),
   });
 
@@ -1334,8 +1341,9 @@ export default function Schedule() {
   });
 
   
-  const jumpTo = (dateStr) => {
-    if (!dateStr) return;
+  const jumpTo = (picked) => {
+    if (!picked) return;
+    const dateStr = picked < TODAY ? TODAY : picked;
     setFilterFrom('');
     setFilterTo('');
     setAnchor(dateStr);
@@ -2015,7 +2023,13 @@ export default function Schedule() {
       <div className="sch-toolbar">
         <div className="sch-toolbar-nav">
           <div className="sch-datebox">
-            <button type="button" className="sch-datebox-arrow" onClick={goPrevMonth} aria-label="Previous month">
+            <button
+              type="button"
+              className="sch-datebox-arrow"
+              onClick={goPrevMonth}
+              disabled={anchor <= TODAY}
+              aria-label="Previous month"
+            >
               <ChevronLeft />
             </button>
             <label className="sch-datebox-main">
@@ -2027,6 +2041,7 @@ export default function Schedule() {
               <input
                 type="date"
                 value={anchor}
+                min={TODAY}
                 onChange={(e) => jumpTo(e.target.value)}
                 onClick={(e) => {
                   try {
@@ -2201,11 +2216,11 @@ export default function Schedule() {
             </div>
             <div>
               <label className="label text-xs">From</label>
-              <input type="date" className="input w-38" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} />
+              <input type="date" className="input w-38" min={TODAY} value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} />
             </div>
             <div>
               <label className="label text-xs">To</label>
-              <input type="date" className="input w-38" value={filterTo} onChange={(e) => setFilterTo(e.target.value)} />
+              <input type="date" className="input w-38" min={TODAY} value={filterTo} onChange={(e) => setFilterTo(e.target.value)} />
             </div>
             <div>
               <label className="label text-xs">Min price</label>
