@@ -17,6 +17,7 @@ import ManualReservationForm, {
 } from '../components/ManualReservationForm';
 import { reservationCurrencyError, reservationMoney, toEgpPayload } from '../utils/reservationCurrency';
 import TransferReservationModal from '../components/TransferReservationModal';
+import ExtendStayModal, { isPlatformStay } from '../components/ExtendStayModal';
 import { useAuth } from '../context/AuthContext';
 import { isoDateOnly } from '../../utils/stayNights';
 import { otaBlockRank, otaBlockLook } from '../utils/otaCalendar';
@@ -389,10 +390,12 @@ function ReservationDetailModal({
   onDelete,
   cancelling,
   deleting,
+  canExtend,
 }) {
   const isWebsitePending = String(reservationId || '').startsWith('web-');
   const numericId = isWebsitePending ? null : reservationId;
   const [guestView, setGuestView] = useState(false);
+  const [extendOpen, setExtendOpen] = useState(false);
 
   const { data: fetched, isLoading } = useQuery({
     queryKey: ['reservation-detail', numericId],
@@ -404,11 +407,11 @@ function ReservationDetailModal({
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !extendOpen) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, onClose, extendOpen]);
 
   useEffect(() => {
     if (open) setGuestView(false);
@@ -624,11 +627,17 @@ function ReservationDetailModal({
               </button>
             </>
           )}
+          {canExtend && res && !cancelled && isPlatformStay(res) ? (
+            <button type="button" className="sch-btn" onClick={() => setExtendOpen(true)}>
+              Extend stay
+            </button>
+          ) : null}
           <button type="button" className="sch-btn sch-btn--primary" onClick={onClose}>
             Close
           </button>
         </div>
       </div>
+      <ExtendStayModal open={extendOpen} onClose={() => setExtendOpen(false)} reservation={res} />
     </div>,
     document.body
   );
@@ -2534,6 +2543,7 @@ export default function Schedule() {
         seed={detailSeed}
         unitName={unitNameById[detailSeed?.unit_id]}
         canWrite={canWrite}
+        canExtend={canManageReservations}
         cancelling={cancelReservationMutation.isPending}
         deleting={deleteReservationMutation.isPending}
         onMoveUnit={(res) => {

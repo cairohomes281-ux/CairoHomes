@@ -9,6 +9,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { salesUsersForActor } from '../utils/permissions';
 import { useSortableTable } from '../hooks/useSortableTable';
 import Modal from '../components/ui/Modal';
+import ExtendStayModal, { isPlatformStay } from '../components/ExtendStayModal';
 import Badge from '../components/ui/Badge';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
@@ -1073,6 +1074,7 @@ export default function Reservations() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [editId, setEditId] = useState(null);
   const [viewRes, setViewRes] = useState(null);
+  const [extendOpen, setExtendOpen] = useState(false);
   const [cancelId, setCancelId] = useState(null);
   
   const [cancelReqOpen,  setCancelReqOpen]  = useState(false);
@@ -2021,7 +2023,13 @@ export default function Reservations() {
       </Modal>
 
       
-      <Modal open={!!viewRes} onClose={() => setViewRes(null)} title={`Reservation #${viewRes}`} size="lg"
+      <ExtendStayModal
+        open={extendOpen}
+        onClose={() => setExtendOpen(false)}
+        reservation={viewDetail}
+      />
+
+      <Modal open={!!viewRes} onClose={() => { setViewRes(null); setExtendOpen(false); }} title={`Reservation #${viewRes}`} size="lg"
         footer={
           <div className="flex items-center justify-end gap-2 w-full">
             {canGenerateReceipt && viewDetail ? (
@@ -2033,6 +2041,11 @@ export default function Reservations() {
                 <Printer className="w-4 h-4" /> Generate receipt
               </button>
             ) : null}
+            {canWrite && viewDetail && viewDetail.status !== 'cancelled' && isPlatformStay(viewDetail) && (
+              <button type="button" className="btn-secondary" onClick={() => setExtendOpen(true)}>
+                Extend stay
+              </button>
+            )}
             {canWrite && viewDetail && viewDetail.status !== 'cancelled' && Number(viewDetail.is_owner_reservation) !== 1 && (
               <button
                 type="button"
