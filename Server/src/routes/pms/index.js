@@ -2956,6 +2956,7 @@ router.get('/reservations/schedule', async (req, res, next) => {
               u.title AS unit_title,
               u.unit_number,
               r.sales_label,
+              ${OTA_DETAILS_NEEDED_SQL} AS ota_details_needed,
               'pms' AS source
        FROM reservations r
        LEFT JOIN units u ON u.id = r.unit_id

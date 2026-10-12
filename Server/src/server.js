@@ -12,6 +12,7 @@ const { startPmsReminderJobs } = require('./jobs/pmsReminders');
 const { startDataRetentionJob } = require('./jobs/dataRetention');
 const { startReservationSettlementJob } = require('./jobs/reservationSettlement');
 const { startMonthlySalaryExpenseJob } = require('./jobs/monthlySalaryExpenses');
+const { startIcalSyncJob } = require('./jobs/icalSync');
 const { syncAllUnitListingStatusesOnBoot } = require('./lib/bootUnitStatusSync');
 
 async function seedAdmin() {
@@ -68,6 +69,7 @@ async function main() {
   startDataRetentionJob();
   startReservationSettlementJob();
   startMonthlySalaryExpenseJob();
+  startIcalSyncJob();
 
   const port = Number(process.env.PORT || 5000);
   server.listen(port, () => {

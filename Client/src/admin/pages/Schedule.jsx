@@ -18,6 +18,7 @@ import ManualReservationForm, {
 import { reservationCurrencyError, reservationMoney, toEgpPayload } from '../utils/reservationCurrency';
 import TransferReservationModal from '../components/TransferReservationModal';
 import ExtendStayModal, { isPlatformStay } from '../components/ExtendStayModal';
+import OtaDetailsModal, { otaDetailsNeeded } from '../components/OtaDetailsModal';
 import { useAuth } from '../context/AuthContext';
 import { isoDateOnly } from '../../utils/stayNights';
 import { otaBlockRank, otaBlockLook } from '../utils/otaCalendar';
@@ -115,7 +116,7 @@ function schBarClass(res, today) {
 }
 
 function schTip(res) {
-  return `${res.status === 'cancelled' ? 'CANCELLED · ' : ''}${res.guest_name || ''}\n${formatDate(
+  return `${otaDetailsNeeded(res) ? 'Details needed · ' : ''}${res.status === 'cancelled' ? 'CANCELLED · ' : ''}${res.guest_name || ''}\n${formatDate(
     normDate(res.check_in)
   )} → ${formatDate(normDate(res.check_out))}`;
 }
@@ -139,6 +140,7 @@ const SCH_LEGEND = [
   { cls: 'sch-bar--owner', label: 'Owner' },
   { cls: 'sch-bar--blocked', label: 'Blocked' },
   { cls: 'sch-bar--past', label: 'Checked out' },
+  { cls: 'sch-bar--needs', label: 'Details needed' },
   { cls: 'sch-swatch--unpriced', label: 'No price' },
 ];
 
@@ -1008,6 +1010,7 @@ export default function Schedule() {
   const [detailModal,       setDetailModal]       = useState(false);
   const [detailResId,       setDetailResId]       = useState(null);
   const [detailSeed,        setDetailSeed]        = useState(null);
+  const [otaFill,           setOtaFill]           = useState(null);
   const [cancelConfirmId,   setCancelConfirmId]   = useState(null);
   const [deleteConfirmId,   setDeleteConfirmId]   = useState(null);
   const [transferRes,       setTransferRes]       = useState(null);
@@ -1100,6 +1103,7 @@ export default function Schedule() {
     queryFn: () => api.get('/reservations/schedule', {
       params: { from_date: addDays(fromStr, -1), to_date: toStr, bedrooms: filterBedrooms || undefined, project: filterProject || undefined },
     }).then(r => r.data),
+    refetchInterval: 60_000,
   });
 
   const { data: dailyPricesRaw = [] } = useQuery({
@@ -1110,6 +1114,7 @@ export default function Schedule() {
   const { data: calendarBlocks = [] } = useQuery({
     queryKey: ['calendar-blocks', fromStr, toStr],
     queryFn: () => api.get('/calendar-blocks', { params: { from: fromStr, to: toStr } }).then(r => r.data),
+    refetchInterval: 60_000,
   });
 
   const blockMap = useMemo(() => {
@@ -1599,7 +1604,10 @@ export default function Schedule() {
 
   const handleResClick = useCallback((res) => {
     if (suppressClickRef.current || dragSelectRef.current) return;
-    
+    if (otaDetailsNeeded(res) && canManageReservations) {
+      setOtaFill(res);
+      return;
+    }
     if (res.is_hold || res.status === 'hold') {
       setHoldDetailId(res.id);
       setHoldDetailModal(true);
@@ -1608,7 +1616,7 @@ export default function Schedule() {
     setDetailSeed(res);
     setDetailResId(res.id);
     setDetailModal(true);
-  }, []);
+  }, [canManageReservations]);
 
   const openEditFromDetail = useCallback(async (res) => {
     try {
@@ -2014,9 +2022,11 @@ export default function Schedule() {
           const r = seg.res;
           const isHold = r.is_hold || r.status === 'hold';
           const dim = guestQuery && !unitHit && !matchesGuest(r);
+          const needsDetails = otaDetailsNeeded(r);
           const cls = [
             'sch-bar',
             schBarClass(r, TODAY),
+            needsDetails ? 'sch-bar--needs' : '',
             seg.clipStart ? 'sch-bar--clip-l' : '',
             seg.clipEnd ? 'sch-bar--clip-r' : '',
             dim ? 'sch-bar--dim' : '',
@@ -2026,8 +2036,8 @@ export default function Schedule() {
           return (
             <td key={seg.date} colSpan={seg.span} className="sch-cell sch-cell--res">
               <button type="button" className={cls} title={schTip(r)} onClick={() => handleResClick(r)}>
-                {seg.span >= 2 && <span className="sch-bar-id">{resBadge(r)}</span>}
-                <span className="sch-bar-name">{r.guest_name || (isHold ? 'Hold' : 'Guest')}</span>
+                {seg.span >= 2 && <span className="sch-bar-id">{needsDetails ? 'Fill' : resBadge(r)}</span>}
+                <span className="sch-bar-name">{needsDetails ? 'Add guest details' : (r.guest_name || (isHold ? 'Hold' : 'Guest'))}</span>
                 {seg.span >= 4 && <span className="sch-bar-meta">{nightsBetween(r.ci, r.co)}n</span>}
               </button>
             </td>
@@ -2518,7 +2528,7 @@ export default function Schedule() {
           <span className="sch-hide-phone">
             {priceMode
               ? 'Tap or drag nights to edit prices'
-              : 'Tap an open night to book · drag to pick several nights · tap a booking for details'}
+              : 'Tap an open night to book · tap a gold booking to add the guest name, phone and price'}
           </span>
         </div>
       </div>
@@ -2539,6 +2549,8 @@ export default function Schedule() {
         onBlock={(unitId, from, to) => blockMutation.mutate({ unit_id: unitId, from_date: from, to_date: to, clear: false })}
         onUnblock={(unitId, from, to) => blockMutation.mutate({ unit_id: unitId, from_date: from, to_date: to, clear: true })}
       />
+
+      <OtaDetailsModal open={!!otaFill} onClose={() => setOtaFill(null)} reservation={otaFill} />
 
       <ReservationDetailModal
         open={detailModal}

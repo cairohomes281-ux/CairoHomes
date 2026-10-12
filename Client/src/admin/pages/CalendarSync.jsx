@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, Copy, Link2, RefreshCw, Unplug } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Check, Copy, Link2, Unplug } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
@@ -208,7 +208,6 @@ function UnitDetailsModal({ unit, open, onClose, focusPlatform }) {
 }
 
 export default function CalendarSync() {
-  const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
   const [focusPlatform, setFocusPlatform] = useState(null);
@@ -216,35 +215,10 @@ export default function CalendarSync() {
   const { data, isLoading } = useQuery({
     queryKey: ['channel-manager'],
     queryFn: () => api.get('/channel-manager/overview').then((r) => r.data),
+    refetchInterval: 60_000,
   });
 
   const units = data?.units || [];
-
-  const refreshAllMutation = useMutation({
-    mutationFn: () => api.post('/channel-manager/sync', {}),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['channel-manager'] });
-      qc.invalidateQueries({ queryKey: ['calendar-blocks'] });
-      const errCount = res.data?.errors || 0;
-      if (errCount > 0) {
-        toast.error(`Sync finished with ${errCount} error${errCount === 1 ? '' : 's'}`);
-      } else {
-        toast.success('Calendar sync complete');
-      }
-    },
-    onError: (e) => toast.error(e.response?.data?.error || 'Sync failed'),
-  });
-
-  const syncFeedMutation = useMutation({
-    mutationFn: (feedId) => api.post('/channel-manager/sync', { feed_id: feedId }),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['channel-manager'] });
-      qc.invalidateQueries({ queryKey: ['calendar-blocks'] });
-      if (res.data?.ok === false) toast.error(res.data.error || 'Sync failed');
-      else toast.success('Calendar synced');
-    },
-    onError: (e) => toast.error(e.response?.data?.error || 'Sync failed'),
-  });
 
   const q = search.trim().toLowerCase();
   const filtered = useMemo(
@@ -280,18 +254,9 @@ export default function CalendarSync() {
         <div>
           <h1 className="page-title">Calendar Sync</h1>
           <p className="page-subtitle">
-            Link each unit’s Airbnb and Booking.com calendars (iCal) so availability stays in sync.
+            Airbnb and Booking.com calendars sync on their own, every minute.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn-secondary"
-          disabled={refreshAllMutation.isPending}
-          onClick={() => refreshAllMutation.mutate()}
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshAllMutation.isPending ? 'animate-spin' : ''}`} />
-          Sync now
-        </button>
       </div>
 
       {failedFeeds.length > 0 ? (
@@ -355,16 +320,6 @@ export default function CalendarSync() {
                             </span>
                           )}
                         </button>
-                        {feed?.id ? (
-                          <button
-                            type="button"
-                            className="text-[11px] text-ch-pine hover:underline"
-                            disabled={syncFeedMutation.isPending}
-                            onClick={() => syncFeedMutation.mutate(feed.id)}
-                          >
-                            Sync
-                          </button>
-                        ) : null}
                       </div>
                     );
                   })}

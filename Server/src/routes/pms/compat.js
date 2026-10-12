@@ -1683,7 +1683,7 @@ router.put(
     const b = req.body;
     const { isAdmin, assertAssignableSalesPerson } = require('../../lib/reservationScope');
     
-    if (!isAdmin(req.user) && !b.extend_stay) {
+    if (!isAdmin(req.user) && !b.extend_stay && !b.fill_ota_details) {
       b.sales_person_id = req.user.id;
     }
     await assertAssignableSalesPerson(req.user, b.sales_person_id);
@@ -1797,6 +1797,43 @@ router.put(
           .status(400)
           .json({ error: `Party size exceeds unit capacity (${cap})` });
       }
+    }
+
+    if (b.fill_ota_details) {
+      const { rows: otaRows } = await query(
+        `SELECT ota_event_uid, guest_name, guest_phone, COALESCE(total_amount, 0)::float AS total_amount,
+                status, GREATEST(COALESCE(nights, 1), 1)::int AS nights
+         FROM reservations WHERE id = $1`,
+        [req.params.id]
+      );
+      const row = otaRows[0];
+      const storedName = String(row?.guest_name || '').trim().toLowerCase();
+      const placeholder = storedName === 'airbnb guest' || storedName === 'booking.com guest';
+      const needs =
+        row?.ota_event_uid &&
+        String(row.status) !== 'cancelled' &&
+        (Number(row.total_amount) <= 0 || !String(row.guest_phone || '').trim() || placeholder);
+      if (!needs) {
+        return res.status(400).json({ error: 'This reservation already has guest details' });
+      }
+      const guestName = String(b.guest_name || '').trim();
+      const guestPhone = String(b.guest_phone || '').trim();
+      if (!guestName || guestName.toLowerCase() === 'airbnb guest' || guestName.toLowerCase() === 'booking.com guest') {
+        return res.status(400).json({ error: 'Enter the guest name' });
+      }
+      if (!guestPhone) return res.status(400).json({ error: 'Enter the phone number' });
+      const stayNights = Number(row.nights) || 1;
+      let stayTotal = parseFloat(b.total_amount);
+      let nightly = parseFloat(b.price_per_night);
+      if (!(stayTotal > 0) && nightly > 0) stayTotal = Math.round(nightly * stayNights * 100) / 100;
+      if (!(nightly > 0) && stayTotal > 0) nightly = Math.round((stayTotal / stayNights) * 100) / 100;
+      if (!(stayTotal > 0) || !(nightly > 0)) {
+        return res.status(400).json({ error: 'Enter the total or the price per night' });
+      }
+      b.guest_name = guestName;
+      b.guest_phone = guestPhone;
+      b.total_amount = stayTotal;
+      b.price_per_night = nightly;
     }
 
     const { rows } = await query(

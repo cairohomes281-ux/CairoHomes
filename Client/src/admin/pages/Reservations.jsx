@@ -10,6 +10,7 @@ import { salesUsersForActor } from '../utils/permissions';
 import { useSortableTable } from '../hooks/useSortableTable';
 import Modal from '../components/ui/Modal';
 import ExtendStayModal, { isPlatformStay } from '../components/ExtendStayModal';
+import OtaDetailsModal, { otaDetailsNeeded } from '../components/OtaDetailsModal';
 import Badge from '../components/ui/Badge';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
@@ -534,6 +535,7 @@ function ReservationDetail({
   onPreviewDocs,
   showOwnerNet = false,
   ownerExperienceView = false,
+  onFillDetails,
 }) {
   if (!reservation) return null;
   const money = (value) => reservationMoney(value, reservation);
@@ -617,12 +619,19 @@ function ReservationDetail({
 
   return (
     <div className="space-y-5">
-      {reservation.ota_details_needed && (
+      {reservation.ota_details_needed && canWrite && onFillDetails ? (
+        <button
+          type="button"
+          onClick={() => onFillDetails(reservation)}
+          className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-left text-sm text-amber-900"
+        >
+          Imported from {reservation.booking_source || 'the platform'}. Click here to add the guest name, phone and price.
+        </button>
+      ) : reservation.ota_details_needed ? (
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Imported automatically from the {reservation.booking_source || 'platform'} calendar. Edit this reservation to
-          add the guest name, phone number and the amount paid.
+          Imported from {reservation.booking_source || 'the platform'}. Guest name, phone and price are still missing.
         </div>
-      )}
+      ) : null}
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div className="space-y-2">
           <InfoRow
@@ -1075,6 +1084,7 @@ export default function Reservations() {
   const [editId, setEditId] = useState(null);
   const [viewRes, setViewRes] = useState(null);
   const [extendReservation, setExtendReservation] = useState(null);
+  const [otaFill, setOtaFill] = useState(null);
   const [cancelId, setCancelId] = useState(null);
   
   const [cancelReqOpen,  setCancelReqOpen]  = useState(false);
@@ -1115,6 +1125,7 @@ export default function Reservations() {
       check_out_from:  filterCheckOutFrom  || undefined,
       check_out_to:    filterCheckOutTo    || undefined,
     }}).then(r => r.data),
+    refetchInterval: 60_000,
   });
 
   const { data: units = [] } = useQuery({ queryKey: ['units'], queryFn: () => api.get('/units').then(r => r.data) });
@@ -1717,13 +1728,18 @@ export default function Reservations() {
                   const salesLabel = reservationSalesDisplay(r, users);
                   const idPhotos = Array.isArray(r.id_photo_urls) ? r.id_photo_urls.filter(Boolean) : [];
                   const isCancelled = r.status === 'cancelled';
+                  const needsDetails = otaDetailsNeeded(r);
                   return (
                     <tr
                       key={r.id}
-                      className={`${isCancelled ? 'bg-red-100/90 text-red-950' : ''} ${
-                        canView ? 'cursor-pointer hover:bg-ch-pine-50/40' : ''
+                      className={`${isCancelled ? 'bg-red-100/90 text-red-950' : needsDetails ? 'bg-amber-50' : ''} ${
+                        canView || (needsDetails && canWrite) ? 'cursor-pointer hover:bg-ch-pine-50/40' : ''
                       }`}
                       onClick={() => {
+                        if (needsDetails && canWrite) {
+                          setOtaFill(r);
+                          return;
+                        }
                         if (canView) setViewRes(r.id);
                       }}
                     >
@@ -2046,6 +2062,7 @@ export default function Reservations() {
         onClose={() => setExtendReservation(null)}
         reservation={extendReservation}
       />
+      <OtaDetailsModal open={!!otaFill} onClose={() => setOtaFill(null)} reservation={otaFill} />
 
       <Modal open={!!viewRes} onClose={() => setViewRes(null)} title={`Reservation #${viewRes}`} size="lg"
         footer={
@@ -2091,6 +2108,10 @@ export default function Reservations() {
           onPreviewDocs={(photos, photo) => {
             setPreviewPhotos(photos);
             setPreviewPhotoIndex(Math.max(0, photos.indexOf(photo)));
+          }}
+          onFillDetails={(reservation) => {
+            setOtaFill(reservation);
+            setViewRes(null);
           }}
         />
       </Modal>

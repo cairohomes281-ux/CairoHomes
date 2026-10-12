@@ -1,6 +1,5 @@
 const cron = require('node-cron');
 const { query } = require('../config/db');
-const { refreshIcalBlocks } = require('../services/ical');
 const { notifyStaff, OPS_ROLES, ADMIN_ROLES } = require('../services/pmsNotifications');
 const { runCheckoutFeedbackWhatsApp } = require('./whatsappCheckoutFeedback');
 
@@ -65,16 +64,6 @@ function startPmsReminderJobs() {
       }
     } catch (err) {
       console.error('[cron whatsapp checkout]', err.message);
-    }
-  });
-
-  
-  cron.schedule('0 3 * * *', async () => {
-    try {
-      const result = await refreshIcalBlocks();
-      console.log('[cron ical]', result);
-    } catch (err) {
-      console.error('[cron ical]', err.message);
     }
   });
 }
