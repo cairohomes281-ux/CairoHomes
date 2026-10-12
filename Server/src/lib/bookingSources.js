@@ -27,6 +27,10 @@ function normalizeBookingSource(value, { hasBookingId = false } = {}) {
   return raw;
 }
 
+function isAirbnbBookingSource(value, opts) {
+  return normalizeBookingSource(value, opts) === 'Airbnb';
+}
+
 function channelReportBucket(bookingSource, { hasBookingId = false } = {}) {
   const src = normalizeBookingSource(bookingSource, { hasBookingId });
   if (!src) return 'Manual';
@@ -47,6 +51,7 @@ module.exports = {
   BOOKING_SOURCES,
   CHANNEL_REPORT_BUCKETS,
   normalizeBookingSource,
+  isAirbnbBookingSource,
   channelReportBucket,
   providerKeyForSource,
 };

@@ -2229,7 +2229,7 @@ router.post(
     }
 
     const downPayment = parseFloat(b.down_payment) || 0;
-    const amountPaid = parseFloat(b.amount_paid) || downPayment || 0;
+    let amountPaid = parseFloat(b.amount_paid) || downPayment || 0;
     const totalAmount = parseFloat(b.total_amount) || 0;
     let paymentStatus = b.payment_status || paymentStatusFrom(totalAmount, amountPaid);
     
@@ -2245,6 +2245,13 @@ router.post(
       
       paymentStatus = amountPaid > 0 ? paymentStatusFrom(totalAmount, amountPaid) : 'pending';
       if (!b.status) status = 'pending';
+    }
+
+    const bookingSource = normalizeBookingSource(b.booking_source, { hasBookingId: Boolean(b.booking_id) });
+    if (bookingSource === 'Airbnb' && !isHold) {
+      amountPaid = totalAmount;
+      paymentStatus = 'paid';
+      if (!b.status || status === 'pending' || status === 'hold') status = 'confirmed';
     }
 
     const proofPath = req.file?.path || req.file?.secure_url || b.transfer_proof_path || null;
@@ -2287,7 +2294,7 @@ router.post(
         totalAmount,
         amountPaid,
         paymentStatus,
-        normalizeBookingSource(b.booking_source, { hasBookingId: Boolean(b.booking_id) }),
+        bookingSource,
         salesPersonId,
         truthyFlag(b.is_owner_reservation) ? 1 : 0,
         status,
@@ -2440,9 +2447,20 @@ router.patch(
 
     const { rows } = await query(
       `UPDATE reservations SET
-         status = COALESCE($1, status),
-         payment_status = COALESCE($2, payment_status),
-         amount_paid = COALESCE($3, amount_paid),
+         status = CASE
+           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb'
+            AND lower(COALESCE($1, status)) IN ('pending', 'hold')
+           THEN 'confirmed'
+           ELSE COALESCE($1, status)
+         END,
+         payment_status = CASE
+           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb' THEN 'paid'
+           ELSE COALESCE($2, payment_status)
+         END,
+         amount_paid = CASE
+           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb' THEN COALESCE($12, total_amount, 0)
+           ELSE COALESCE($3, amount_paid)
+         END,
          notes = COALESCE($4, notes),
          guest_name = COALESCE($5, guest_name),
          guest_email = COALESCE($6, guest_email),

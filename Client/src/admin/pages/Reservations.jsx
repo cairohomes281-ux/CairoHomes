@@ -176,6 +176,9 @@ export function ReservationForm({ form, setForm, units, users, isNew, transferPr
             placeholder="Select source…"
             options={[{ value: '', label: 'Select source…' }, ...BOOKING_SOURCES.map(s => ({ value: s, label: s }))]}
           />
+          {form.booking_source === 'Airbnb' ? (
+            <p className="mt-1 text-xs text-ch-pine">Marked as already paid.</p>
+          ) : null}
         </div>
         <div><label className="label">Tenant Name *</label><input className="input" value={form.guest_name} onChange={e => setForm(f => ({ ...f, guest_name: e.target.value }))} placeholder="Full name" /></div>
         <div><label className="label">Mobile No. *</label><input className="input" value={form.guest_phone} onChange={e => setForm(f => ({ ...f, guest_phone: e.target.value }))} placeholder="+20..." /></div>

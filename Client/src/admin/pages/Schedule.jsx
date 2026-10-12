@@ -672,6 +672,9 @@ function EditReservationModal({ open, onClose, editId, editForm, setEditForm, un
               placeholder="Select…"
               options={[{ value: '', label: 'Select…' }, ...BOOKING_SOURCES.map(s => ({ value: s, label: s }))]}
             />
+            {editForm.booking_source === 'Airbnb' ? (
+              <p className="mt-1 text-xs text-ch-pine">Marked as already paid.</p>
+            ) : null}
           </div>
           <div><label className="label">Check-in *</label><input type="date" className="input" value={editForm.check_in} onChange={e => setEditForm(f => ({ ...f, check_in: e.target.value }))} /></div>
           <div><label className="label">Check-out *</label><input type="date" className="input" value={editForm.check_out} onChange={e => setEditForm(f => ({ ...f, check_out: e.target.value }))} /></div>

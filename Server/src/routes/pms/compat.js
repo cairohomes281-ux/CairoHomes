@@ -13,6 +13,7 @@ const {
 } = require('../../config/cloudinary');
 const { setOwnerUnits, listLinkableUnits } = require('../../lib/ownerUnits');
 const { UNIT_ACQUISITION_ROLES } = require('../../lib/unitAcquisition');
+const { normalizeBookingSource } = require('../../lib/bookingSources');
 
 const OWNER_ACCOUNT_ROLES = ['finance', ...UNIT_ACQUISITION_ROLES];
 const OWNER_LINK_ROLES = [...UNIT_ACQUISITION_ROLES];
@@ -1744,9 +1745,20 @@ router.put(
 
     const { rows } = await query(
       `UPDATE reservations SET
-         status = COALESCE($1, status),
-         payment_status = COALESCE($2, payment_status),
-         amount_paid = COALESCE($3, amount_paid),
+         status = CASE
+           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb'
+            AND lower(COALESCE($1, status)) IN ('pending', 'hold')
+           THEN 'confirmed'
+           ELSE COALESCE($1, status)
+         END,
+         payment_status = CASE
+           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb' THEN 'paid'
+           ELSE COALESCE($2, payment_status)
+         END,
+         amount_paid = CASE
+           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb' THEN COALESCE($12, total_amount, 0)
+           ELSE COALESCE($3, amount_paid)
+         END,
          notes = COALESCE($4, notes),
          guest_name = COALESCE($5, guest_name),
          guest_email = COALESCE($6, guest_email),
@@ -1793,7 +1805,9 @@ router.put(
         b.check_in || b.check_out ? nights : null,
         b.total_amount != null && b.total_amount !== '' ? parseFloat(b.total_amount) : null,
         b.price_per_night != null && b.price_per_night !== '' ? parseFloat(b.price_per_night) : null,
-        b.booking_source ?? null,
+        b.booking_source != null && b.booking_source !== ''
+          ? normalizeBookingSource(b.booking_source, { hasBookingId: Boolean(b.booking_id || existing.booking_id) })
+          : b.booking_source ?? null,
         b.sales_person_id || null,
         b.is_owner_reservation !== undefined
           ? (b.is_owner_reservation === true || b.is_owner_reservation === 1 || b.is_owner_reservation === '1' ? 1 : 0)

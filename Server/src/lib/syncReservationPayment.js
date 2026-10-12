@@ -1,5 +1,6 @@
 
 const { query } = require('../config/db');
+const { isAirbnbBookingSource } = require('./bookingSources');
 
 function paymentStatusFrom(totalAmount, amountPaid) {
   const total = Math.max(0, Number(totalAmount) || 0);
@@ -14,11 +15,29 @@ async function syncReservationPaymentStatus(reservationId) {
   if (!reservationId) return null;
 
   const { rows: resRows } = await query(
-    `SELECT id, total_amount, status, down_payment FROM reservations WHERE id = $1`,
+    `SELECT id, total_amount, status, down_payment, booking_source FROM reservations WHERE id = $1`,
     [reservationId]
   );
   const reservation = resRows[0];
   if (!reservation) return null;
+
+  if (isAirbnbBookingSource(reservation.booking_source)) {
+    const current = String(reservation.status || '').toLowerCase();
+    if (current === 'cancelled') return reservation;
+    const total = Math.max(0, Number(reservation.total_amount) || 0);
+    const nextStatus = current === 'pending' || current === 'hold' ? 'confirmed' : reservation.status;
+    const { rows } = await query(
+      `UPDATE reservations
+       SET amount_paid = $1,
+           payment_status = 'paid',
+           status = $2,
+           updated_at = now()
+       WHERE id = $3
+       RETURNING *`,
+      [total, nextStatus, reservationId]
+    );
+    return rows[0] || null;
+  }
 
   const { rows: payRows } = await query(
     `SELECT COALESCE(SUM(amount), 0)::float AS paid
@@ -28,6 +47,7 @@ async function syncReservationPaymentStatus(reservationId) {
        AND COALESCE(is_approved, 0) = 1`,
     [reservationId]
   );
+
   const fromPayments = Number(payRows[0]?.paid) || 0;
   const down = Number(reservation.down_payment) || 0;
   
