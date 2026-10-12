@@ -950,6 +950,7 @@ export default function Schedule() {
   const { user } = useAuth();
   const { canEditSchedulePricing, canManageReservations, canReserveLongTermUnits, canWriteSchedule, isManualReservations, isWebsiteReservations, isReservationsManager, isAdmin } = usePermissions();
   const TODAY = todayStr();
+  const EARLIEST = addDays(TODAY, -1);
   const TOMORROW = addDays(TODAY, 1);
   const [anchor, setAnchor] = useState(TODAY);
   const [spanMonths, setSpanMonths] = useState(3);
@@ -1022,7 +1023,7 @@ export default function Schedule() {
   const [holdDetailId,      setHoldDetailId]      = useState(null);
 
   
-  const defaultFrom = anchor < TODAY ? TODAY : anchor;
+  const defaultFrom = anchor <= TODAY ? EARLIEST : anchor;
   const defaultTo   = addMonths(defaultFrom, spanMonths);
 
   
@@ -1030,7 +1031,7 @@ export default function Schedule() {
   
   const { fromStr, toStr } = useMemo(() => {
     const range = pickRange();
-    const from = range.fromStr < TODAY ? TODAY : range.fromStr;
+    const from = range.fromStr < EARLIEST ? EARLIEST : range.fromStr;
     const to = range.toStr <= from ? addMonths(from, spanMonths) : range.toStr;
     return { fromStr: from, toStr: to };
 
@@ -1057,7 +1058,7 @@ export default function Schedule() {
     }
     return { fromStr: defaultFrom, toStr: defaultTo };
     }
-  }, [filterFrom, filterTo, defaultFrom, defaultTo, spanMonths, TODAY]);
+  }, [filterFrom, filterTo, defaultFrom, defaultTo, spanMonths, EARLIEST]);
 
   const displayDates = useMemo(() => {
     const days = [];
@@ -1355,7 +1356,7 @@ export default function Schedule() {
   
   const jumpTo = (picked) => {
     if (!picked) return;
-    const dateStr = picked < TODAY ? TODAY : picked;
+    const dateStr = picked < EARLIEST ? EARLIEST : picked;
     setFilterFrom('');
     setFilterTo('');
     setAnchor(dateStr);
@@ -1887,7 +1888,7 @@ export default function Schedule() {
 
   const rangeLabel = monthLabel;
 
-  const scrollTarget = filterFrom || anchor;
+  const scrollTarget = filterFrom || (anchor <= TODAY ? fromStr : anchor);
   useLayoutEffect(() => {
     const el = gridRef.current;
     if (!el) return;
@@ -1895,7 +1896,7 @@ export default function Schedule() {
     const th = el.querySelector(`th[data-day="${target}"]`);
     if (!th) return;
     const unitW = el.querySelector('.sch-corner')?.offsetWidth || 0;
-    el.scrollLeft = Math.max(0, th.offsetLeft - unitW - Math.round(th.offsetWidth / 2));
+    el.scrollLeft = Math.max(0, th.offsetLeft - unitW);
   }, [scrollTarget, fromStr, isLoading, scrollNonce]);
 
   const renderFreeCell = (unit, d) => {
@@ -2039,7 +2040,7 @@ export default function Schedule() {
               type="button"
               className="sch-datebox-arrow"
               onClick={goPrevMonth}
-              disabled={anchor <= TODAY}
+              disabled={fromStr <= EARLIEST}
               aria-label="Previous month"
             >
               <ChevronLeft />
@@ -2053,7 +2054,7 @@ export default function Schedule() {
               <input
                 type="date"
                 value={anchor}
-                min={TODAY}
+                min={EARLIEST}
                 onChange={(e) => jumpTo(e.target.value)}
                 onClick={(e) => {
                   try {
@@ -2228,11 +2229,11 @@ export default function Schedule() {
             </div>
             <div>
               <label className="label text-xs">From</label>
-              <input type="date" className="input w-38" min={TODAY} value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} />
+              <input type="date" className="input w-38" min={EARLIEST} value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} />
             </div>
             <div>
               <label className="label text-xs">To</label>
-              <input type="date" className="input w-38" min={TODAY} value={filterTo} onChange={(e) => setFilterTo(e.target.value)} />
+              <input type="date" className="input w-38" min={EARLIEST} value={filterTo} onChange={(e) => setFilterTo(e.target.value)} />
             </div>
             <div>
               <label className="label text-xs">Min price</label>
