@@ -225,15 +225,19 @@ const CHECKIN_SELECT = `
           b.children AS booking_children,
           b.nanny_count AS booking_nanny,
           b.guests AS booking_guests,
-          ops_agent.id AS ops_assignee_id,
-          ops_agent.full_name AS ops_assignee_name,
-          ops_agent.staff_code AS ops_assignee_code,
+          (
+            SELECT string_agg(s.full_name, ', ' ORDER BY s.full_name)
+            FROM staff_unit_assignments sa
+            JOIN staff_users s ON s.id = sa.staff_id
+            WHERE sa.unit_id = r.unit_id
+              AND s.role = 'operations'
+              AND s.is_active = 1
+          ) AS unit_agent_names,
           money_by.full_name AS ops_money_collected_by_name,
           hand_by.full_name AS ops_handed_over_by_name
    FROM reservations r
    JOIN units u ON u.id = r.unit_id
    LEFT JOIN bookings b ON b.id = r.booking_id
-   LEFT JOIN staff_users ops_agent ON ops_agent.id = r.ops_assigned_to
    LEFT JOIN staff_users money_by ON money_by.id = r.ops_money_collected_by
    LEFT JOIN staff_users hand_by ON hand_by.id = r.ops_handed_over_by
 `;
@@ -272,10 +276,7 @@ function mapCheckin(row) {
     ops_money_collected_at: row.ops_money_collected_at,
     ops_handed_over: handedOver,
     ops_handed_over_at: row.ops_handed_over_at,
-    ops_assigned_to: row.ops_assigned_to || null,
-    ops_assigned_at: row.ops_assigned_at || null,
-    ops_assignee_name: row.ops_assignee_name || null,
-    ops_assignee_code: row.ops_assignee_code || null,
+    ops_assignee_name: row.unit_agent_names || null,
     ops_money_collected_by_name: row.ops_money_collected_by_name || null,
     ops_handed_over_by_name: row.ops_handed_over_by_name || null,
     ops_handover_comment: row.ops_handover_comment || null,
@@ -288,43 +289,28 @@ function mapCheckin(row) {
   };
 }
 
-function assertOpsCanAct(req, row) {
-  if (isOpsSupervisor(req.user)) return null;
-  if (req.user.role !== OPS_AGENT) return 'Forbidden';
-  if (!row.ops_assigned_to || Number(row.ops_assigned_to) !== Number(req.user.id)) {
-    return 'This check-in is not assigned to you';
-  }
-  return null;
+function agentUnitScope(user, params) {
+  if (user?.role !== OPS_AGENT) return '';
+  params.push(user.id);
+  return ` AND r.unit_id IN (SELECT unit_id FROM staff_unit_assignments WHERE staff_id = $${params.length})`;
 }
 
-router.get('/ops/agents', requireRoles(...OPS_SUPER_ROLES), async (_req, res, next) => {
-  try {
-    const { rows } = await query(
-      `SELECT id, full_name, username, staff_code,
-              COALESCE(
-                (SELECT array_agg(sa.unit_id::text) FROM staff_unit_assignments sa WHERE sa.staff_id = staff_users.id),
-                '{}'
-              ) AS assigned_unit_ids
-       FROM staff_users
-       WHERE role = $1 AND is_active = 1
-       ORDER BY full_name ASC NULLS LAST, username ASC`,
-      [OPS_AGENT]
-    );
-    res.json(rows);
-  } catch (e) {
-    next(e);
-  }
-});
+async function assertOpsCanAct(req, row) {
+  if (isOpsSupervisor(req.user)) return null;
+  if (req.user.role !== OPS_AGENT) return 'Forbidden';
+  const { rows } = await query(
+    `SELECT 1 FROM staff_unit_assignments WHERE staff_id = $1 AND unit_id = $2::uuid`,
+    [req.user.id, row.unit_id]
+  );
+  if (!rows[0]) return 'This unit is not assigned to you';
+  return null;
+}
 
 router.get('/ops/checkins-today', requireRoles(...OPS_ROLES), async (req, res, next) => {
   try {
     const { range, from, to } = parseOpsDateRange(req.query.range || req.query.period);
     const params = [from, to];
-    let scope = '';
-    if (req.user.role === OPS_AGENT) {
-      params.push(req.user.id);
-      scope = ` AND r.ops_assigned_to = $${params.length}`;
-    }
+    const scope = agentUnitScope(req.user, params);
 
     const { rows } = await query(
       `${CHECKIN_SELECT}
@@ -356,11 +342,7 @@ router.get('/ops/checkins-history', requireRoles(...OPS_ROLES), async (req, res,
   try {
     const { from, to } = parseHistoryRange(req.query);
     const params = [from, to];
-    let scope = '';
-    if (req.user.role === OPS_AGENT) {
-      params.push(req.user.id);
-      scope = ` AND r.ops_assigned_to = $${params.length}`;
-    }
+    const scope = agentUnitScope(req.user, params);
 
     const { rows } = await query(
       `${CHECKIN_SELECT}
@@ -371,7 +353,11 @@ router.get('/ops/checkins-history', requireRoles(...OPS_ROLES), async (req, res,
          AND (
            COALESCE(r.ops_handed_over, 0) = 1
            OR COALESCE(r.ops_money_collected, 0) = 1
-           OR r.ops_assigned_to IS NOT NULL
+           OR EXISTS (
+             SELECT 1 FROM staff_unit_assignments sa
+             JOIN staff_users s ON s.id = sa.staff_id
+             WHERE sa.unit_id = r.unit_id AND s.role = 'operations' AND s.is_active = 1
+           )
          )
          ${scope}
        ORDER BY r.check_in DESC, u.unit_number ASC NULLS LAST
@@ -385,59 +371,6 @@ router.get('/ops/checkins-history', requireRoles(...OPS_ROLES), async (req, res,
 });
 
 router.post(
-  '/ops/checkins-today/:reservationId/assign',
-  requireRoles(...OPS_SUPER_ROLES),
-  async (req, res, next) => {
-    try {
-      const reservationId = Number(req.params.reservationId);
-      const staffId = req.body?.staff_id != null ? Number(req.body.staff_id) : null;
-      const row = await fetchCheckinRow(reservationId);
-      if (!row) return res.status(404).json({ error: 'Reservation not found' });
-
-      if (staffId) {
-        const { rows: agents } = await query(
-          `SELECT s.id,
-                  EXISTS (
-                    SELECT 1 FROM staff_unit_assignments sa
-                    WHERE sa.staff_id = s.id AND sa.unit_id = $3::uuid
-                  ) AS has_unit
-           FROM staff_users s
-           WHERE s.id = $1 AND s.role = $2 AND s.is_active = 1`,
-          [staffId, OPS_AGENT, row.unit_id]
-        );
-        if (!agents[0]) return res.status(400).json({ error: 'Select an active operations agent' });
-        if (!agents[0].has_unit) {
-          return res.status(400).json({ error: 'This agent is not assigned to this unit' });
-        }
-      }
-
-      await query(
-        `UPDATE reservations SET
-           ops_assigned_to = $2::int,
-           ops_assigned_at = CASE WHEN $2::int IS NULL THEN NULL ELSE now() END,
-           ops_assigned_by = CASE WHEN $2::int IS NULL THEN NULL ELSE $3::int END,
-           updated_at = now()
-         WHERE id = $1`,
-        [reservationId, staffId || null, Number(req.user.id) || null]
-      );
-
-      await logAudit({
-        userId: req.user.id,
-        action: 'OPS_ASSIGN_CHECKIN',
-        entityType: 'reservation',
-        entityId: reservationId,
-        details: { staff_id: staffId || null },
-      });
-
-      const updated = await fetchCheckinRow(reservationId);
-      res.json(mapCheckin(updated));
-    } catch (e) {
-      next(e);
-    }
-  }
-);
-
-router.post(
   '/ops/checkins-today/:reservationId/collect',
   requireRoles(...OPS_ROLES),
   async (req, res, next) => {
@@ -448,7 +381,7 @@ router.post(
       if (String(row.status).toLowerCase() === 'cancelled') {
         return res.status(409).json({ error: 'Reservation is cancelled' });
       }
-      const denied = assertOpsCanAct(req, row);
+      const denied = await assertOpsCanAct(req, row);
       if (denied) return res.status(403).json({ error: denied });
 
       const collectMode = String(req.body?.collect_mode || 'full').toLowerCase() === 'custom'
@@ -626,7 +559,7 @@ router.post(
       const reservationId = Number(req.params.reservationId);
       const row = await fetchCheckinRow(reservationId);
       if (!row) return res.status(404).json({ error: 'Reservation not found' });
-      const denied = assertOpsCanAct(req, row);
+      const denied = await assertOpsCanAct(req, row);
       if (denied) return res.status(403).json({ error: denied });
       if (Number(row.ops_handed_over) === 1) {
         return res.status(409).json({ error: 'Check-in already handed over' });
@@ -675,7 +608,7 @@ router.post(
       const reservationId = Number(req.params.reservationId);
       const row = await fetchCheckinRow(reservationId);
       if (!row) return res.status(404).json({ error: 'Reservation not found' });
-      const denied = assertOpsCanAct(req, row);
+      const denied = await assertOpsCanAct(req, row);
       if (denied) return res.status(403).json({ error: denied });
       if (Number(row.ops_handed_over) === 1) {
         return res.json(mapCheckin(row));
@@ -781,12 +714,18 @@ router.get('/ops/checkin-comments', requireRoles(...OPS_SUPER_ROLES), async (req
               COALESCE(u.project, u.compound) AS project,
               agent.full_name AS comment_by_name,
               agent.staff_code AS comment_by_code,
-              assignee.full_name AS ops_assignee_name,
+              (
+                SELECT string_agg(s.full_name, ', ' ORDER BY s.full_name)
+                FROM staff_unit_assignments sa
+                JOIN staff_users s ON s.id = sa.staff_id
+                WHERE sa.unit_id = r.unit_id
+                  AND s.role = 'operations'
+                  AND s.is_active = 1
+              ) AS ops_assignee_name,
               reviewer.full_name AS reviewed_by_name
        FROM reservations r
        JOIN units u ON u.id = r.unit_id
        LEFT JOIN staff_users agent ON agent.id = r.ops_handover_comment_by
-       LEFT JOIN staff_users assignee ON assignee.id = r.ops_assigned_to
        LEFT JOIN staff_users reviewer ON reviewer.id = r.ops_comment_reviewed_by
        WHERE r.ops_handover_comment IS NOT NULL
          AND btrim(r.ops_handover_comment) <> ''
@@ -891,6 +830,7 @@ function mapCheckout(row) {
     insurance_refunded_at: row.insurance_refunded_at,
     insurance_refund_method: row.insurance_refund_method,
     insurance_refunded_by_name: row.insurance_refunded_by_name || null,
+    ops_assignee_name: row.unit_agent_names || null,
     can_refund_insurance: insurance > 0.009 && !refunded,
   };
 }
@@ -899,11 +839,7 @@ router.get('/ops/checkouts-today', requireRoles(...OPS_ROLES), async (req, res, 
   try {
     const { range, from, to } = parseOpsDateRange(req.query.range || req.query.period);
     const params = [from, to];
-    let scope = '';
-    if (req.user.role === OPS_AGENT) {
-      params.push(req.user.id);
-      scope = ` AND r.ops_assigned_to = $${params.length}`;
-    }
+    const scope = agentUnitScope(req.user, params);
     const { rows } = await query(
       `SELECT r.id,
               r.guest_name,
@@ -912,7 +848,14 @@ router.get('/ops/checkouts-today', requireRoles(...OPS_ROLES), async (req, res, 
               r.check_out,
               r.status,
               r.unit_id,
-              r.ops_assigned_to,
+              (
+                SELECT string_agg(s.full_name, ', ' ORDER BY s.full_name)
+                FROM staff_unit_assignments sa
+                JOIN staff_users s ON s.id = sa.staff_id
+                WHERE sa.unit_id = r.unit_id
+                  AND s.role = 'operations'
+                  AND s.is_active = 1
+              ) AS unit_agent_names,
               COALESCE(r.insurance, 0)::float AS insurance,
               r.insurance_refund_status,
               COALESCE(r.insurance_refunded_amount, 0)::float AS insurance_refunded_amount,
@@ -977,7 +920,7 @@ router.post(
       if (String(row.status).toLowerCase() === 'cancelled') {
         return res.status(409).json({ error: 'Reservation is cancelled' });
       }
-      const denied = assertOpsCanAct(req, row);
+      const denied = await assertOpsCanAct(req, row);
       if (denied) return res.status(403).json({ error: denied });
 
       const held = Math.round((Number(row.insurance) || 0) * 100) / 100;

@@ -2321,39 +2321,6 @@ router.post(
 
     const reservation = rows[0];
 
-    try {
-      const { canonicalOpsAgentFromLabel, matchOpsStaff } = require('../../lib/opsAgentAliases');
-      let opsAssigneeId = null;
-      if (req.user.role === 'operations') {
-        opsAssigneeId = req.user.id;
-      } else {
-        const label = b.sales_label || b.sales_owner || '';
-        const canonical = canonicalOpsAgentFromLabel(label);
-        if (canonical) {
-          const { rows: opsStaff } = await query(
-            `SELECT id, full_name, role FROM staff_users
-             WHERE is_active = 1 AND role IN ('operations', 'operations_supervisor')`
-          );
-          const hit = matchOpsStaff(canonical, opsStaff);
-          if (hit) opsAssigneeId = hit.id;
-        }
-      }
-      if (opsAssigneeId) {
-        await query(
-          `UPDATE reservations
-           SET ops_assigned_to = $2,
-               ops_assigned_at = now(),
-               ops_assigned_by = $3,
-               updated_at = now()
-           WHERE id = $1`,
-          [reservation.id, opsAssigneeId, req.user.id]
-        );
-        reservation.ops_assigned_to = opsAssigneeId;
-      }
-    } catch (err) {
-      console.warn('[reservations] ops auto-assign failed', err.message);
-    }
-
     if (
       reservation &&
       !isHold &&

@@ -93,8 +93,7 @@ export function CheckoutsTodaySection({ embedded = false }) {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Checkouts</h1>
             <p className="mt-1 text-sm text-gray-500">
-              Departures for the selected period — confirm insurance held and record a custom payout
-              (full or partial refund / damage retention).
+              Departures on each agent’s units. Confirm insurance held and record a payout.
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -157,6 +156,9 @@ export function CheckoutsTodaySection({ embedded = false }) {
                       <div className="text-xs text-gray-500 truncate max-w-[10rem]">
                         {r.unit_title || r.project || ''}
                       </div>
+                      {r.ops_assignee_name ? (
+                        <div className="text-[11px] text-teal-800 mt-1">{r.ops_assignee_name}</div>
+                      ) : null}
                     </td>
                     <td className="py-4 px-4">
                       {insurance > 0.009 ? (

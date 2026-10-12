@@ -73,7 +73,7 @@ const PAGE_RULES = {
   performance: { owner: 'reservations_manager', api: ['/pms/reservation-targets', '/pms/reservations-performance'] },
   reservation_audit: { owner: 'reservations_manager', api: ['/pms/reservation-audit'] },
   operations: { owner: 'operations_supervisor', api: ['/pms/ops'] },
-  ops_checkins: { owner: 'operations_supervisor', api: ['/pms/ops/checkins-today', '/pms/ops/checkouts-today', '/pms/ops/checkins-history', '/pms/ops/agents'] },
+  ops_checkins: { owner: 'operations_supervisor', api: ['/pms/ops/checkins-today', '/pms/ops/checkouts-today', '/pms/ops/checkins-history'] },
   ops_comments: { owner: 'operations_supervisor', api: ['/pms/ops/checkin-comments'] },
   financial_system: {
     owner: 'finance_manager',

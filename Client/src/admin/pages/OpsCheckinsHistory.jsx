@@ -41,8 +41,8 @@ export function CheckinsHistorySection({ embedded = false }) {
             <h1 className="text-2xl font-bold text-gray-900">Check-ins history</h1>
             <p className="mt-1 text-sm text-gray-500">
               {isAgent
-                ? 'Past arrivals assigned to you — collect and handover record.'
-                : 'Past check-ins with money collected, handover, or agent assignment.'}
+                ? 'Past check-ins on your units.'
+                : 'Past check-ins on units that have an operations agent, or where money was collected or the unit was handed over.'}
             </p>
           </div>
           <button type="button" className="btn-secondary text-sm" onClick={() => refetch()} disabled={isFetching}>

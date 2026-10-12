@@ -279,7 +279,6 @@ const PERMISSIONS = {
   operations_supervisor: [
     'ops_checkins:read',
     'ops_checkins:write',
-    'ops_checkins:assign',
     'ops_comments:read',
     'ops_comments:write',
     'units:read',

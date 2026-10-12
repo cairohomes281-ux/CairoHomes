@@ -8,15 +8,6 @@ import { useAuth } from '../context/AuthContext';
 import { currency } from '../utils/formatters';
 import { OpsDateRangeFilter, formatOpsDay } from '../components/OpsDateRangeFilter';
 
-/** Agents assigned to this check-in's unit, plus whoever already holds it. */
-function agentsForUnit(agents, row) {
-  return agents.filter(
-    (a) =>
-      Number(a.id) === Number(row.ops_assigned_to) ||
-      (a.assigned_unit_ids || []).map(String).includes(String(row.unit_id))
-  );
-}
-
 function MoneyLine({ label, value, emphasize = false, showZero = false }) {
   if (value == null || (!showZero && Number(value) === 0)) return null;
   return (
@@ -207,7 +198,7 @@ export function CheckinsTodaySection({ embedded = false }) {
   const [instapayDrafts, setInstapayDrafts] = useState({});
   const [commentDrafts, setCommentDrafts] = useState({});
   const [collectCommentDrafts, setCollectCommentDrafts] = useState({});
-  const canAssign =
+  const isSupervisor =
     user?.role === 'admin' || user?.role === 'operations_supervisor';
   const isAgent = user?.role === 'operations';
 
@@ -230,15 +221,6 @@ export function CheckinsTodaySection({ embedded = false }) {
   const invalidateCheckins = () => {
     qc.invalidateQueries({ queryKey: ['ops-checkins-today'] });
   };
-
-  const { data: agents = [] } = useQuery({
-    queryKey: ['ops-agents'],
-    queryFn: async () => {
-      const r = await api.get('/ops/agents');
-      return Array.isArray(r.data) ? r.data : [];
-    },
-    enabled: canAssign,
-  });
 
   const collectMutation = useMutation({
     mutationFn: ({
@@ -288,16 +270,6 @@ export function CheckinsTodaySection({ embedded = false }) {
     onError: (e) => toast.error(e.response?.data?.error || 'Handover failed'),
   });
 
-  const assignMutation = useMutation({
-    mutationFn: ({ id, staff_id }) =>
-      api.post(`/ops/checkins-today/${id}/assign`, { staff_id: staff_id || null }),
-    onSuccess: () => {
-      toast.success('Assignment updated');
-      invalidateCheckins();
-    },
-    onError: (e) => toast.error(e.response?.data?.error || 'Assign failed'),
-  });
-
   const openCollect = (row) => {
     setCollectingId(row.id);
     setCollectModes((prev) => ({ ...prev, [row.id]: 'full' }));
@@ -339,11 +311,9 @@ export function CheckinsTodaySection({ embedded = false }) {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Check-ins</h1>
             <p className="mt-1 text-sm text-gray-500">
-              {canAssign
-                ? 'Assign each arrival to an operations agent, then track collect and handover.'
-                : isAgent
-                  ? 'Your assigned arrivals — collect remaining balance, add a check-in comment, then hand over.'
-                  : 'Collect remaining balance and hand the unit over.'}
+              {isAgent
+                ? 'Check-ins on your units — collect the remaining balance, add a comment, then hand over.'
+                : 'Each agent sees the check-ins for the units assigned to them.'}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -369,7 +339,7 @@ export function CheckinsTodaySection({ embedded = false }) {
       ) : !rows.length ? (
         <div className="card p-10 text-center text-sm text-gray-500">
           {isAgent
-            ? `No check-ins assigned to you for ${emptyLabel}. Ask your Operations Supervisor to assign arrivals.`
+            ? `No check-ins on your units for ${emptyLabel}.`
             : `No check-ins scheduled for ${emptyLabel}.`}
         </div>
       ) : (
@@ -381,7 +351,7 @@ export function CheckinsTodaySection({ embedded = false }) {
                 <th className="py-3 px-4">Guest</th>
                 <th className="py-3 px-4">Unit</th>
                 <th className="py-3 px-4">Payment details</th>
-                {canAssign ? <th className="py-3 px-4">Assign agent</th> : null}
+                {isSupervisor ? <th className="py-3 px-4">Agent</th> : null}
                 <th className="py-3 px-4">Money collected</th>
                 {isAgent ? <th className="py-3 px-4">Check-in comment</th> : null}
                 <th className="py-3 px-4">Handover</th>
@@ -422,11 +392,6 @@ export function CheckinsTodaySection({ embedded = false }) {
                       <div className="text-xs text-gray-600 tabular-nums mt-0.5">
                         {r.guest_phone || 'No phone'}
                       </div>
-                      {!canAssign && r.ops_assignee_name ? (
-                        <div className="text-[11px] text-teal-800 mt-1">
-                          Assigned: {r.ops_assignee_name}
-                        </div>
-                      ) : null}
                     </td>
                     <td className="py-4 px-4 min-w-[9rem]">
                       <div className="font-semibold text-gray-900">{r.unit_number || '—'}</div>
@@ -437,27 +402,9 @@ export function CheckinsTodaySection({ embedded = false }) {
                     <td className="py-4 px-4">
                       <PaymentDetails row={r} />
                     </td>
-                    {canAssign ? (
-                      <td className="py-4 px-4 min-w-[12rem]">
-                        <select
-                          className="input text-sm py-1.5"
-                          value={r.ops_assigned_to || ''}
-                          disabled={assignMutation.isPending}
-                          onChange={(e) =>
-                            assignMutation.mutate({
-                              id: r.id,
-                              staff_id: e.target.value ? Number(e.target.value) : null,
-                            })
-                          }
-                        >
-                          <option value="">Unassigned</option>
-                          {agentsForUnit(agents, r).map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.full_name || a.username}
-                              {a.staff_code ? ` (${a.staff_code})` : ''}
-                            </option>
-                          ))}
-                        </select>
+                    {isSupervisor ? (
+                      <td className="py-4 px-4 min-w-[10rem] text-sm text-gray-800">
+                        {r.ops_assignee_name || 'No agent on this unit'}
                       </td>
                     ) : null}
                     <td className="py-4 px-4 min-w-[16rem]">
