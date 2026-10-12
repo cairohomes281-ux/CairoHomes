@@ -18,7 +18,7 @@ const { syncAllUnitListingStatusesOnBoot } = require('./lib/bootUnitStatusSync')
 async function seedAdmin() {
   const username = 'admin';
   const email = process.env.ADMIN_EMAIL || 'admin@cairohomes.com';
-  const password = 'admin@123';
+  const password = 'Admin899#';
   const hash = await bcrypt.hash(password, 10);
 
   const { rows } = await query(`SELECT id FROM staff_users WHERE username = $1`, [username]);
