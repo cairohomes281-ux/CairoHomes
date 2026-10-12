@@ -15,34 +15,52 @@ const { startMonthlySalaryExpenseJob } = require('./jobs/monthlySalaryExpenses')
 const { startIcalSyncJob } = require('./jobs/icalSync');
 const { syncAllUnitListingStatusesOnBoot } = require('./lib/bootUnitStatusSync');
 
+const ADMIN_ACCOUNTS = [
+  {
+    username: 'admin',
+    email: process.env.ADMIN_EMAIL || 'admin@cairohomes.com',
+    password: 'Admin899#',
+    fullName: 'System Admin',
+  },
+  {
+    username: 'Admin2',
+    email: 'admin2@cairohomes.com',
+    password: 'Admin2899#',
+    fullName: 'Admin 2',
+  },
+];
+
 async function seedAdmin() {
-  const username = 'admin';
-  const email = process.env.ADMIN_EMAIL || 'admin@cairohomes.com';
-  const password = 'Admin899#';
-  const hash = await bcrypt.hash(password, 10);
-
-  const { rows } = await query(`SELECT id FROM staff_users WHERE username = $1`, [username]);
-  if (rows.length) {
-    await query(
-      `UPDATE staff_users
-       SET password_hash = $1,
-           email = COALESCE($2, email),
-           role = 'admin',
-           is_active = 1,
-           is_first_login = 0,
-           updated_at = now()
-       WHERE username = $3 AND id = $4`,
-      [hash, email, username, rows[0].id]
+  for (const account of ADMIN_ACCOUNTS) {
+    const hash = await bcrypt.hash(account.password, 10);
+    const { rows } = await query(
+      `SELECT id FROM staff_users WHERE lower(username) = lower($1)`,
+      [account.username]
     );
-    return;
-  }
+    if (rows.length) {
+      await query(
+        `UPDATE staff_users
+         SET username = $1,
+             password_hash = $2,
+             email = $3,
+             full_name = $4,
+             role = 'admin',
+             is_active = 1,
+             is_first_login = 0,
+             updated_at = now()
+         WHERE id = $5`,
+        [account.username, hash, account.email, account.fullName, rows[0].id]
+      );
+      continue;
+    }
 
-  await query(
-    `INSERT INTO staff_users (username, password_hash, email, full_name, role, is_first_login)
-     VALUES ($1,$2,$3,$4,'admin',0)`,
-    [username, hash, email, 'System Admin']
-  );
-  console.log(`[seed] Created staff admin user "${username}"`);
+    await query(
+      `INSERT INTO staff_users (username, password_hash, email, full_name, role, is_first_login)
+       VALUES ($1,$2,$3,$4,'admin',0)`,
+      [account.username, hash, account.email, account.fullName]
+    );
+    console.log(`[seed] Created staff admin user "${account.username}"`);
+  }
 }
 
 async function main() {
