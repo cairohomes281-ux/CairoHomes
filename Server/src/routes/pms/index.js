@@ -2943,7 +2943,7 @@ router.get('/reservations/schedule', async (req, res, next) => {
     const { rows: reservations } = await query(
       `SELECT r.id, r.unit_id, r.guest_name, r.guest_email, r.guest_phone, r.guest_nationality,
               r.check_in::text AS check_in, r.check_out::text AS check_out, r.nights,
-              r.total_amount, r.amount_paid, r.payment_status, r.booking_source,
+              r.total_amount, r.price_per_night, r.amount_paid, r.payment_status, r.booking_source,
               r.sales_person_id, r.is_owner_reservation, r.status, r.notes, r.booking_id,
               r.hold_expires_at, r.created_by, r.created_at,
               CASE

@@ -622,15 +622,21 @@ function ReservationDetailModal({
                   Move unit
                 </button>
               )}
-              <button type="button" className="sch-btn" onClick={() => onEdit?.(res)}>
-                <Edit2 /> Edit
-              </button>
             </>
           )}
-          {canExtend && res && !cancelled && isPlatformStay(res) ? (
-            <button type="button" className="sch-btn" onClick={() => setExtendOpen(true)}>
-              Extend stay
-            </button>
+          {canAct || (canExtend && res && !cancelled && isPlatformStay(res)) ? (
+            <div className="sch-edit-pair">
+              {canAct ? (
+                <button type="button" className="sch-btn" onClick={() => onEdit?.(res)}>
+                  <Edit2 /> Edit
+                </button>
+              ) : null}
+              {canExtend && res && !cancelled && isPlatformStay(res) ? (
+                <button type="button" className="sch-btn" onClick={() => setExtendOpen(true)}>
+                  Extend stay
+                </button>
+              ) : null}
+            </div>
           ) : null}
           <button type="button" className="sch-btn sch-btn--primary" onClick={onClose}>
             Close

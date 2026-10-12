@@ -1683,7 +1683,7 @@ router.put(
     const b = req.body;
     const { isAdmin, assertAssignableSalesPerson } = require('../../lib/reservationScope');
     
-    if (!isAdmin(req.user)) {
+    if (!isAdmin(req.user) && !b.extend_stay) {
       b.sales_person_id = req.user.id;
     }
     await assertAssignableSalesPerson(req.user, b.sales_person_id);
@@ -1705,6 +1705,62 @@ router.put(
 
     const clearHold =
       b.is_hold === false || b.is_hold === 0 || b.is_hold === '0' || b.is_hold === 'false';
+
+    if (b.extend_stay) {
+      if (!b.check_out) return res.status(400).json({ error: 'Check-out date is required' });
+      const { rows: stayRows } = await query(
+        `SELECT check_out::text AS check_out, unit_id FROM reservations WHERE id = $1`,
+        [req.params.id]
+      );
+      const stay = stayRows[0];
+      if (!stay?.check_out) return res.status(400).json({ error: 'This stay has no check-out date' });
+      const newOut = String(b.check_out).slice(0, 10);
+      if (newOut <= String(stay.check_out).slice(0, 10)) {
+        return res.status(400).json({ error: 'The new check-out must be after the current check-out' });
+      }
+      const unitId = b.unit_id || stay.unit_id;
+      const oldOut = String(stay.check_out).slice(0, 10);
+      const { rows: clashes } = await query(
+        `SELECT id FROM reservations
+         WHERE unit_id = $1 AND id <> $2
+           AND status IS DISTINCT FROM 'cancelled'
+           AND check_in < $3::date AND check_out > $4::date
+         LIMIT 1`,
+        [unitId, req.params.id, newOut, oldOut]
+      );
+      if (clashes[0]) {
+        return res.status(409).json({ error: 'Those extra nights are already booked' });
+      }
+      const { rows: web } = await query(
+        `SELECT id FROM bookings
+         WHERE status IN ('confirmed', 'pending', 'held')
+           AND (hold_expires_at IS NULL OR hold_expires_at > now())
+           AND unit_id = $1
+           AND checkin < $2::date AND checkout > $3::date
+           AND NOT EXISTS (
+             SELECT 1 FROM reservations r
+             WHERE r.booking_id = bookings.id AND r.status <> 'cancelled'
+           )
+         LIMIT 1`,
+        [unitId, newOut, oldOut]
+      );
+      if (web[0]) {
+        return res.status(409).json({ error: 'Those extra nights are already booked' });
+      }
+      const { rows: blocks } = await query(
+        `SELECT b.date
+         FROM unit_blocked_dates b
+         JOIN units u ON u.wp_post_id = b.wp_post_id
+         WHERE u.id = $1
+           AND b.date >= $2::date AND b.date < $3::date
+           AND COALESCE(b.source, 'manual') NOT IN ('reservation', 'reservation_import', 'booking')
+         LIMIT 1`,
+        [unitId, oldOut, newOut]
+      );
+      if (blocks[0]) {
+        return res.status(409).json({ error: 'Those extra nights are already booked' });
+      }
+    }
 
     if (
       b.adults !== undefined ||

@@ -766,10 +766,17 @@ body.sched-dragging { cursor: cell; user-select: none; }
 }
 .sch-dialog-actions .sch-btn { flex: 1 1 40%; height: 44px; }
 .sch-dialog-actions .sch-btn--primary { flex-basis: 100%; }
+.sch-dialog-actions .sch-edit-pair {
+  display: flex;
+  gap: 8px;
+  flex: 1 1 100%;
+}
+.sch-dialog-actions .sch-edit-pair .sch-btn { flex: 1 1 0; }
 @media (min-width: 640px) {
   .sch-dialog-actions { justify-content: flex-end; }
   .sch-dialog-actions .sch-btn { flex: 0 0 auto; height: 38px; }
   .sch-dialog-actions .sch-btn--primary { flex-basis: auto; min-width: 88px; }
+  .sch-dialog-actions .sch-edit-pair { flex: 0 0 auto; }
 }
 
 /* Guest view — a clean card made for a screenshot */

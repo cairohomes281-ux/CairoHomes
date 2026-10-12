@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Edit2, Eye, Ban, CreditCard, CalendarDays, Upload, Download, CheckCircle, AlertCircle, Lock, Trash2, Maximize2, X, FileText, ArrowRightLeft, Printer, Globe, History } from 'lucide-react';
+import { Plus, Edit2, Eye, Ban, CreditCard, CalendarDays, Upload, Download, CheckCircle, AlertCircle, Lock, Trash2, Maximize2, X, FileText, ArrowRightLeft, Printer, Globe, History, CalendarPlus } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
@@ -1074,7 +1074,7 @@ export default function Reservations() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [editId, setEditId] = useState(null);
   const [viewRes, setViewRes] = useState(null);
-  const [extendOpen, setExtendOpen] = useState(false);
+  const [extendReservation, setExtendReservation] = useState(null);
   const [cancelId, setCancelId] = useState(null);
   
   const [cancelReqOpen,  setCancelReqOpen]  = useState(false);
@@ -1826,6 +1826,15 @@ export default function Reservations() {
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
                           )}
+                          {canWrite && r.status !== 'cancelled' && isPlatformStay(r) && (
+                            <button
+                              type="button"
+                              onClick={() => setExtendReservation(r)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold text-ch-pine hover:bg-ch-pine-50"
+                            >
+                              <CalendarPlus className="w-3.5 h-3.5" /> Extend stay
+                            </button>
+                          )}
                           {canWrite && r.status !== 'cancelled' && Number(r.is_owner_reservation) !== 1 && (
                             <button onClick={() => setTransferRes(r)} className="p-1.5 rounded text-gray-400 hover:text-amber-700 hover:bg-amber-50" title="Move to another unit">
                               <ArrowRightLeft className="w-3.5 h-3.5" />
@@ -1918,6 +1927,15 @@ export default function Reservations() {
                             )}
                             {canWrite && r.status !== 'cancelled' && (
                               <button onClick={() => openEdit(r)} className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50" title="Edit"><Edit2 className="w-3.5 h-3.5" /></button>
+                            )}
+                            {canWrite && r.status !== 'cancelled' && isPlatformStay(r) && (
+                              <button
+                                type="button"
+                                onClick={() => setExtendReservation(r)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold text-ch-pine hover:bg-ch-pine-50"
+                              >
+                                <CalendarPlus className="w-3.5 h-3.5" /> Extend stay
+                              </button>
                             )}
                             {canWrite && r.status !== 'cancelled' && (
                               <button onClick={() => openCancelReq(r.id)} className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50" title="Cancel"><Ban className="w-3.5 h-3.5" /></button>
@@ -2024,12 +2042,12 @@ export default function Reservations() {
 
       
       <ExtendStayModal
-        open={extendOpen}
-        onClose={() => setExtendOpen(false)}
-        reservation={viewDetail}
+        open={!!extendReservation}
+        onClose={() => setExtendReservation(null)}
+        reservation={extendReservation}
       />
 
-      <Modal open={!!viewRes} onClose={() => { setViewRes(null); setExtendOpen(false); }} title={`Reservation #${viewRes}`} size="lg"
+      <Modal open={!!viewRes} onClose={() => setViewRes(null)} title={`Reservation #${viewRes}`} size="lg"
         footer={
           <div className="flex items-center justify-end gap-2 w-full">
             {canGenerateReceipt && viewDetail ? (
@@ -2041,11 +2059,6 @@ export default function Reservations() {
                 <Printer className="w-4 h-4" /> Generate receipt
               </button>
             ) : null}
-            {canWrite && viewDetail && viewDetail.status !== 'cancelled' && isPlatformStay(viewDetail) && (
-              <button type="button" className="btn-secondary" onClick={() => setExtendOpen(true)}>
-                Extend stay
-              </button>
-            )}
             {canWrite && viewDetail && viewDetail.status !== 'cancelled' && Number(viewDetail.is_owner_reservation) !== 1 && (
               <button
                 type="button"
