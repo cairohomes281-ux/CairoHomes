@@ -4,7 +4,6 @@ const BOOKING_SOURCES = [
   'Airbnb',
   'Booking.com',
   'Manual',
-  'Private',
   'Broker',
   'Campaign',
   'Facebook Post',
@@ -21,7 +20,6 @@ function normalizeBookingSource(value, { hasBookingId = false } = {}) {
   if (lower === 'airbnb') return 'Airbnb';
   if (lower === 'booking' || lower === 'booking.com' || lower === 'bookingcom') return 'Booking.com';
   if (lower === 'manual') return 'Manual';
-  if (lower === 'private') return 'Private';
   if (lower === 'broker') return 'Broker';
   if (lower === 'campaign') return 'Campaign';
   if (lower === 'facebook' || lower === 'facebook post') return 'Facebook Post';

@@ -38,7 +38,6 @@ export const BOOKING_SOURCES = [
   'Airbnb',
   'Booking.com',
   'Manual',
-  'Private',
   'Broker',
   'Campaign',
   'Facebook Post',

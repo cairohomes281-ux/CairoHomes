@@ -331,7 +331,7 @@ const REVIEW_TEXTS = [
   'Stylish, calm and well equipped. Wi-Fi was fast enough for video calls all week.',
 ];
 
-const SOURCES = ['Website', 'Website', 'Website', 'Airbnb', 'Airbnb', 'Booking.com', 'Private', 'Broker', 'Manual'];
+const SOURCES = ['Website', 'Website', 'Website', 'Airbnb', 'Airbnb', 'Booking.com', 'Broker', 'Manual'];
 const METHODS = ['instapay', 'bank_transfer', 'cash', 'credit_card', 'paymob_card'];
 
 // Deterministic PRNG so the dataset is identical on every run.
@@ -550,7 +550,7 @@ async function seedReservations(units, adminId, staffIds) {
       if (status === 'checked_out' || status === 'checked_in') paid = rand() < 0.85 ? total : Math.round(total * 0.5);
       else if (status === 'confirmed') paid = rand() < 0.5 ? Math.round(total * 0.3) : total;
       const paymentStatus = paid >= total ? 'paid' : paid > 0 ? 'partial' : 'pending';
-      const source = longTerm ? pick(['Private', 'Broker', 'Website']) : pick(SOURCES);
+      const source = longTerm ? pick(['Broker', 'Website', 'Manual']) : pick(SOURCES);
       const method = paid > 0 ? (source === 'Website' ? pick(['paymob_card', 'instapay']) : pick(METHODS)) : null;
       const adults = Math.max(1, Math.min(u.guests, between(1, u.guests)));
       const children = Math.max(0, Math.min(u.guests - adults, between(0, 2)));
