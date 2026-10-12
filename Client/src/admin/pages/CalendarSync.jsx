@@ -254,7 +254,7 @@ export default function CalendarSync() {
         <div>
           <h1 className="page-title">Calendar Sync</h1>
           <p className="page-subtitle">
-            Airbnb and Booking.com calendars sync on their own, every minute.
+            Airbnb and Booking.com calendars update automatically every minute.
           </p>
         </div>
       </div>
