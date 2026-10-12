@@ -18,26 +18,28 @@ const { syncAllUnitListingStatusesOnBoot } = require('./lib/bootUnitStatusSync')
 async function seedAdmin() {
   const username = 'admin';
   const email = process.env.ADMIN_EMAIL || 'admin@cairohomes.com';
-  const password = 'Cairogzoik4bq!';
+  const password = 'admin@123';
+  const hash = await bcrypt.hash(password, 10);
 
   const { rows } = await query(`SELECT id FROM staff_users WHERE username = $1`, [username]);
   if (rows.length) {
-    // Never overwrite an existing admin password on boot.
-    if (email) {
-      await query(
-        `UPDATE staff_users
-         SET email = COALESCE($1, email), role = 'admin', is_active = 1, updated_at = now()
-         WHERE username = $2 AND id = $3`,
-        [email, username, rows[0].id]
-      );
-    }
+    await query(
+      `UPDATE staff_users
+       SET password_hash = $1,
+           email = COALESCE($2, email),
+           role = 'admin',
+           is_active = 1,
+           is_first_login = 0,
+           updated_at = now()
+       WHERE username = $3 AND id = $4`,
+      [hash, email, username, rows[0].id]
+    );
     return;
   }
 
-  const hash = await bcrypt.hash(password, 10);
   await query(
-    `INSERT INTO staff_users (username, password_hash, email, full_name, role)
-     VALUES ($1,$2,$3,$4,'admin')`,
+    `INSERT INTO staff_users (username, password_hash, email, full_name, role, is_first_login)
+     VALUES ($1,$2,$3,$4,'admin',0)`,
     [username, hash, email, 'System Admin']
   );
   console.log(`[seed] Created staff admin user "${username}"`);
