@@ -79,18 +79,21 @@ async function blocksOpsAgentUnit(user, unitIds) {
   return wanted.some((id) => !mine.has(id));
 }
 
-/** Roles that may list/view all reservations (not scoped to own sales). */
-const BROAD_RESERVATION_ACCESS_ROLES = new Set(['admin', 'owners_relations']);
+/** Roles that may list/view all reservations (not scoped to own sales or team). */
+const BROAD_RESERVATION_ACCESS_ROLES = new Set([
+  'admin',
+  'owners_relations',
+  'reservations_manager',
+  'operations_supervisor',
+]);
 
 /** Finance sees every website-origin reservation (not manual/OTA-only). */
 const WEBSITE_ALL_RESERVATION_ROLES = new Set(['finance', 'finance_manager']);
 
 /** Managers who see own + direct-report team reservations. */
 const TEAM_RESERVATION_ROLES = new Set([
-  'reservations_manager',
   'hr_supervisor',
   'unit_acquisition_manager',
-  'operations_supervisor',
 ]);
 
 /** Staff who only see reservations they own / created / labeled as themselves. */
@@ -186,22 +189,6 @@ function reservationScopeClause(user, alias = 'r', paramIndex = 1) {
       )`,
       params: [],
       nextIndex: paramIndex,
-    };
-  }
-
-  if (user.role === 'operations_supervisor') {
-    return {
-      clause: ` AND (
-        ${alias}.ops_assigned_to = $${paramIndex}
-        OR ${alias}.ops_assigned_to IN (
-          SELECT id FROM staff_users
-          WHERE manager_id = $${paramIndex} AND role = 'operations'
-        )
-        OR ${alias}.created_by = $${paramIndex}
-        OR ${alias}.ops_assigned_by = $${paramIndex}
-      )`,
-      params: [user.id],
-      nextIndex: paramIndex + 1,
     };
   }
 
@@ -311,17 +298,6 @@ function reservationScopeClause(user, alias = 'r', paramIndex = 1) {
 function bookingAssigneeClause(user, alias = 'b', paramIndex = 1) {
   if (user?.role === 'reservations_manual') {
     return { clause: ' AND FALSE', params: [], nextIndex: paramIndex };
-  }
-  if (isReservationsManager(user)) {
-    const col = alias ? `${alias}.assigned_sales_id` : 'assigned_sales_id';
-    return {
-      clause: ` AND (
-        ${col} = $${paramIndex}
-        OR ${col} IN (SELECT id FROM staff_users WHERE manager_id = $${paramIndex})
-      )`,
-      params: [user.id],
-      nextIndex: paramIndex + 1,
-    };
   }
   if (isAdmin(user) || !isWebsiteReservationsAgent(user)) {
     return { clause: '', params: [], nextIndex: paramIndex };

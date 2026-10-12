@@ -1014,7 +1014,7 @@ export default function Reservations() {
     (isWebsiteReservations ||
       isManualReservations ||
       isReservations ||
-      ['hr', 'marketing_pr', 'unit_acquisition_agent', 'operations', 'operations_supervisor'].includes(
+      ['hr', 'marketing_pr', 'unit_acquisition_agent', 'operations'].includes(
         user?.role
       ));
   const pageTitle = agentOnly ? 'My Reservations' : 'Reservations';
