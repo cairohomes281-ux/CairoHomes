@@ -42,10 +42,10 @@ describe('parseIcalEvents', () => {
 });
 
 describe('isReservationEvent', () => {
-  it('imports Airbnb "Reserved" stays but not host blocks', () => {
+  it('imports Airbnb reserved stays and host blocks as stays missing guest details', () => {
     const [stay, block] = parseIcalEvents(AIRBNB_ICS);
     assert.equal(isReservationEvent('airbnb', stay), true);
-    assert.equal(isReservationEvent('airbnb', block), false);
+    assert.equal(isReservationEvent('airbnb', block), true);
   });
 
   it('treats Booking.com closed events as reservations', () => {

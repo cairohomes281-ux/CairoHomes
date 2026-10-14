@@ -25,11 +25,16 @@ router.get('/:slug.ics', async (req, res, next) => {
 
     // Explicit schedule / owner holds — same nights guest calendars treat as closed.
     const { rows: blocked } = await query(
-      `SELECT date::text AS date, COALESCE(source, 'manual') AS source
+      `SELECT date::text AS date
        FROM unit_blocked_dates
        WHERE wp_post_id = $1
          AND date >= CURRENT_DATE - 1
          AND COALESCE(source, 'manual') NOT IN ('reservation', 'reservation_import', 'booking')
+       UNION
+       SELECT date::text AS date
+       FROM unit_ical_blocks
+       WHERE wp_post_id = $1
+         AND date >= CURRENT_DATE - 1
        ORDER BY date`,
       [unit.wp_post_id]
     );

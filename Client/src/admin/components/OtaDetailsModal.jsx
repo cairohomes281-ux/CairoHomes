@@ -57,7 +57,18 @@ export default function OtaDetailsModal({ open, onClose, reservation }) {
   }, [open, reservation]);
 
   const saveMutation = useMutation({
-    mutationFn: (payload) => api.put(`/reservations/${reservation.id}`, payload),
+    mutationFn: (payload) =>
+      reservation?.synthetic_ota_block
+        ? api.post('/reservations', {
+            ...payload,
+            unit_id: reservation.unit_id,
+            check_in: isoDateOnly(reservation.check_in),
+            check_out: isoDateOnly(reservation.check_out),
+            adults: 1,
+            status: 'confirmed',
+            ota_block_stay: true,
+          })
+        : api.put(`/reservations/${reservation.id}`, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reservations'] });
       qc.invalidateQueries({ queryKey: ['schedule'] });

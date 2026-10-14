@@ -49,10 +49,9 @@ function parseIcalEvents(ics) {
   });
 }
 
-/** Airbnb marks guest stays "Reserved"; its other events are host blocks. Booking.com marks everything "CLOSED". */
+/** Airbnb and Booking.com calendars only say a night is busy. Both become stays that still need a name, phone and price. */
 function isReservationEvent(platform, event) {
-  if (platform === 'airbnb') return /reserved/i.test(event.summary || '');
-  if (platform === 'booking') return true;
+  if (platform === 'airbnb' || platform === 'booking') return Boolean(event?.start && event?.end);
   return false;
 }
 

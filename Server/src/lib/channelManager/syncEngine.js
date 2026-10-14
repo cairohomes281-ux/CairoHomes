@@ -182,7 +182,15 @@ async function syncAllIcal({ unitId = null } = {}) {
     filter = `AND unit_id = $1`;
   }
   const { rows: feeds } = await query(
-    `SELECT id FROM unit_ota_feeds WHERE enabled = true ${filter}`,
+    `SELECT id FROM unit_ota_feeds
+     WHERE enabled = true
+       AND ical_url IS NOT NULL AND ical_url <> ''
+       ${filter}
+     ORDER BY CASE lower(platform)
+       WHEN 'airbnb' THEN 0
+       WHEN 'booking' THEN 1
+       ELSE 2
+     END, id`,
     params
   );
   const results = [];

@@ -2190,7 +2190,19 @@ router.post(
     }
 
     
-    if (wpPostId) {
+    const otaBlockStay = truthyFlag(b.ota_block_stay);
+    if (otaBlockStay) {
+      const { rows: clash } = await query(
+        `SELECT 1 FROM reservations
+         WHERE unit_id = $1 AND status <> 'cancelled'
+           AND check_in < $3::date AND check_out > $2::date
+         LIMIT 1`,
+        [b.unit_id, b.check_in, b.check_out]
+      );
+      if (clash[0]) {
+        return res.status(409).json({ error: 'Those nights are already booked' });
+      }
+    } else if (wpPostId) {
       const blocked = await getBlockedDates(wpPostId, b.check_in, b.check_out, {
         includeUnpriced: normalizeListingType(unitRow?.listing_type) !== LONG_TERM,
       });

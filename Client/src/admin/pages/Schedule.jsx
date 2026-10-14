@@ -21,7 +21,7 @@ import ExtendStayModal, { isPlatformStay } from '../components/ExtendStayModal';
 import OtaDetailsModal, { otaDetailsNeeded } from '../components/OtaDetailsModal';
 import { useAuth } from '../context/AuthContext';
 import { isoDateOnly } from '../../utils/stayNights';
-import { otaBlockRank, otaBlockLook } from '../utils/otaCalendar';
+import { otaBlockRank, otaBlockLook, otaPlatformFromSource } from '../utils/otaCalendar';
 import { useProjectCatalog } from '../../hooks/useProjectCatalog';
 import './scheduleRack.css';
 
@@ -98,6 +98,50 @@ function buildSegments(unitRes, dateStrs) {
     });
   }
   return segs;
+}
+
+function otaBlockReservations(unit, dateStrs, blockMap, stays) {
+  const covered = new Set();
+  for (const stay of stays) {
+    if (stay.status === 'cancelled') continue;
+    for (const day of dateStrs) {
+      if (stay.ci <= day && stay.co > day) covered.add(day);
+    }
+  }
+  const blocks = blockMap[unit.id] || {};
+  const out = [];
+  let i = 0;
+  while (i < dateStrs.length) {
+    const day = dateStrs[i];
+    const platform = otaPlatformFromSource(blocks[day]);
+    if ((platform !== 'airbnb' && platform !== 'booking') || covered.has(day)) {
+      i += 1;
+      continue;
+    }
+    const source = blocks[day];
+    const start = day;
+    i += 1;
+    while (i < dateStrs.length && blocks[dateStrs[i]] === source && !covered.has(dateStrs[i])) i += 1;
+    const end = addDays(dateStrs[i - 1], 1);
+    const label = platform === 'booking' ? 'Booking.com' : 'Airbnb';
+    out.push({
+      id: `ota-block-${unit.id}-${start}`,
+      unit_id: unit.id,
+      unit_number: unit.unit_number,
+      guest_name: `${label} guest`,
+      booking_source: label,
+      check_in: start,
+      check_out: end,
+      ci: start,
+      co: end,
+      nights: i - dateStrs.indexOf(start),
+      status: 'confirmed',
+      total_amount: 0,
+      ota_details_needed: true,
+      synthetic_ota_block: true,
+    });
+  }
+  return out;
 }
 
 function schBarClass(res, today) {
@@ -1985,7 +2029,8 @@ export default function Schedule() {
   };
 
   const renderUnitRow = (unit) => {
-    const segs = buildSegments(resByUnit[unit.id] || [], dateStrs);
+    const stays = resByUnit[unit.id] || [];
+    const segs = buildSegments([...stays, ...otaBlockReservations(unit, dateStrs, blockMap, stays)], dateStrs);
     const code = unitDisplay(unit);
     const name = unit.name || unit.title || '';
     const unitHit = unitMatches(unit);
