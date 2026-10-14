@@ -1777,6 +1777,15 @@ export default function Schedule() {
     return sortUnits(filtered);
   }, [data, filterColor, filterUnits, filterFloor, filterPriceMin, filterPriceMax, filterAvailable, allReservations, displayDates, priceMap, blockMap, fromStr, toStr, TODAY, TOMORROW]);
 
+  const unitColPx = useMemo(() => {
+    let longest = 4;
+    for (const unit of filteredUnits) {
+      const code = String(unitDisplay(unit) || '');
+      if (code.length > longest) longest = code.length;
+    }
+    return Math.max(168, Math.ceil(longest * 9.2 + 96));
+  }, [filteredUnits]);
+
   
   const unitNameById = useMemo(() => {
     const names = {};
@@ -2048,7 +2057,7 @@ export default function Schedule() {
   };
 
   return (
-    <div className={`sch${priceMode ? ' sch--price' : ''}`}>
+    <div className={`sch${priceMode ? ' sch--price' : ''}`} style={{ '--sch-unit-w': `${unitColPx}px` }}>
       <div className="sch-toolbar">
         <div className="sch-toolbar-nav">
           <div className="sch-datebox">
@@ -2329,7 +2338,7 @@ export default function Schedule() {
                             className="h-4 w-4 flex-shrink-0 rounded border-ch-line accent-[#2f5d58]"
                           />
                           <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-ch-pine">{unitDisplay(u)}</div>
+                            <div className="break-words text-sm font-medium text-ch-pine">{unitDisplay(u)}</div>
                             <div className="text-xs text-ch-muted">
                               {[u.project, u.name && u.unit_number && u.name !== u.unit_number ? u.name : null]
                                 .filter(Boolean)

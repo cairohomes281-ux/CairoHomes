@@ -473,11 +473,15 @@ body.sched-dragging { cursor: cell; user-select: none; }
   text-align: left;
   font-weight: 400;
 }
-.sch-unit-inner { display: flex; align-items: center; gap: 8px; min-width: 0; height: 100%; }
-.sch-unit-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
-.sch-unit-code,
-.sch-unit-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sch-unit-code { font-size: 12px; font-weight: 800; color: var(--ink); }
+.sch-unit-inner { display: flex; align-items: center; gap: 8px; height: 100%; }
+.sch-unit-text { display: flex; flex: 0 0 auto; flex-direction: column; }
+.sch-unit-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.sch-unit-code {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+}
 .sch-unit-name { margin-top: 2px; font-size: 10.5px; color: var(--muted); }
 .sch-unit-tag {
   display: none;

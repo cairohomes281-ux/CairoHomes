@@ -284,8 +284,8 @@ export default function CalendarSync() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Link2}
-          title="No published units"
-          description="Publish rental units to link their calendars."
+          title="No units"
+          description="Add a unit to link its Airbnb and Booking.com calendars."
         />
       ) : (
         <div className="rounded-2xl border border-ch-line bg-white overflow-hidden">
@@ -302,9 +302,12 @@ export default function CalendarSync() {
               <li key={unit.id}>
                 <div className="grid grid-cols-[minmax(0,1.4fr)_repeat(2,minmax(0,1.1fr))] gap-2 items-center px-4 py-3 hover:bg-ch-pine-50/40">
                   <button type="button" onClick={() => openUnit(unit)} className="text-left min-w-0">
-                    <p className="font-medium text-ch-pine truncate">{unitCode(unit)}</p>
+                    <p className="font-medium text-ch-pine break-words">{unitCode(unit)}</p>
+                    {unit.status && unit.status !== 'published' ? (
+                      <p className="text-[11px] capitalize text-ch-muted">{unit.status}</p>
+                    ) : null}
                     {unit.title && unit.title !== unitCode(unit) ? (
-                      <p className="text-xs text-ch-muted truncate">{unit.title}</p>
+                      <p className="text-xs text-ch-muted break-words">{unit.title}</p>
                     ) : null}
                   </button>
                   {PLATFORMS.map((p) => {

@@ -58,8 +58,7 @@ router.get('/overview', async (_req, res, next) => {
     const { rows: units } = await query(
       `SELECT id, wp_post_id, slug, title, unit_number, status
        FROM units
-       WHERE status = 'published'
-       ORDER BY title NULLS LAST, unit_number NULLS LAST`
+       ORDER BY unit_number NULLS LAST, title NULLS LAST`
     );
     const { rows: feeds } = await query(
       `SELECT id, unit_id, wp_post_id, platform, label, ical_url, enabled,

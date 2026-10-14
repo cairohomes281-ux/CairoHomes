@@ -113,7 +113,6 @@ async function getEnabledOtaFeeds({ unitId = null } = {}) {
      JOIN units u ON u.id = f.unit_id
      WHERE f.enabled = true
        AND f.ical_url IS NOT NULL AND f.ical_url <> ''
-       AND u.status = 'published'
        ${filter}
      ORDER BY u.title NULLS LAST, f.platform`,
     params
