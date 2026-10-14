@@ -71,10 +71,33 @@ WHERE li.wordpress_post_id = u.wp_post_id
   AND f.ical_url IS NOT NULL
   AND btrim(f.ical_url) <> '';
 
-DELETE FROM public.unit_ical_blocks
-WHERE feed_id IN (
-  SELECT id FROM public.unit_ota_feeds WHERE lower(platform) = 'booking'
-);
+-- Drop a Booking.com night only when Airbnb or an existing stay already covers it,
+-- so a home that is not on Airbnb yet does not suddenly open booked nights.
+DELETE FROM public.unit_ical_blocks b
+USING public.unit_ota_feeds f
+WHERE b.feed_id = f.id
+  AND lower(f.platform) = 'booking'
+  AND (
+    EXISTS (
+      SELECT 1
+      FROM public.unit_ical_blocks a
+      JOIN public.unit_ota_feeds af ON af.id = a.feed_id
+      WHERE af.unit_id = f.unit_id
+        AND lower(af.platform) = 'airbnb'
+        AND a.date = b.date
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.reservations r
+      JOIN public.units u ON u.id = r.unit_id
+      WHERE u.wp_post_id = b.wp_post_id
+        AND r.status IS DISTINCT FROM 'cancelled'
+        AND b.date >= r.check_in
+        AND b.date < r.check_out
+    )
+  );
+
+ALTER TABLE public.unit_ota_feeds ALTER COLUMN ical_url DROP NOT NULL;
 
 UPDATE public.unit_ota_feeds
 SET enabled = false,
