@@ -159,7 +159,12 @@ async function systemStaffId() {
 async function hasConflict(feed, unitId, checkIn, checkOut) {
   const { rows } = await query(
     `SELECT 1 FROM reservations
-     WHERE unit_id = $1 AND status <> 'cancelled' AND check_in < $3::date AND check_out > $2::date
+     WHERE unit_id = $1
+       AND check_in < $3::date AND check_out > $2::date
+       AND (
+         status <> 'cancelled'
+         OR (ota_event_uid IS NOT NULL AND ota_removed_at IS NULL)
+       )
      LIMIT 1`,
     [unitId, checkIn, checkOut]
   );

@@ -2724,6 +2724,73 @@ router.post(
   }
 );
 
+router.post('/reservations/dismiss-block', requireRoles(
+  'reservations_manager',
+  'reservations_manual',
+  'reservations_web',
+  'reservations',
+  'operations',
+  'operations_supervisor',
+  'hr',
+  'hr_supervisor',
+  'marketing_pr',
+  'finance',
+  'finance_manager',
+  'unit_acquisition_agent',
+  'unit_acquisition_manager',
+  'admin'
+), async (req, res, next) => {
+  try {
+    const unitId = req.body?.unit_id;
+    const checkIn = String(req.body?.check_in || '').slice(0, 10);
+    const checkOut = String(req.body?.check_out || '').slice(0, 10);
+    const source = String(req.body?.booking_source || 'Airbnb').trim() || 'Airbnb';
+    if (!unitId || !/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut) || checkOut <= checkIn) {
+      return res.status(400).json({ error: 'Unit, check-in, and check-out are required' });
+    }
+    if (await blocksOpsAgentUnit(req.user, [unitId])) {
+      return res.status(403).json({ error: OPS_UNIT_FORBIDDEN });
+    }
+    const nights = Math.max(1, Math.round((new Date(`${checkOut}T00:00:00`) - new Date(`${checkIn}T00:00:00`)) / 86400000));
+    const uid = `dismissed:${unitId}:${checkIn}:${checkOut}`;
+    const { rows: already } = await query(
+      `SELECT id FROM reservations
+       WHERE unit_id = $1 AND ota_event_uid = $2 AND status = 'cancelled'
+       LIMIT 1`,
+      [unitId, uid]
+    );
+    if (!already[0]) {
+      await query(
+        `INSERT INTO reservations (
+           unit_id, guest_name, check_in, check_out, nights, total_amount, amount_paid,
+           payment_status, booking_source, status, notes, adults, created_by, ota_event_uid
+         ) VALUES ($1,$2,$3::date,$4::date,$5,0,0,'pending',$6,'cancelled',$7,1,$8,$9)`,
+        [
+          unitId,
+          /book/i.test(source) ? 'Booking.com guest' : 'Airbnb guest',
+          checkIn,
+          checkOut,
+          nights,
+          source,
+          'Removed from the schedule.',
+          req.user.id,
+          uid,
+        ]
+      );
+    }
+    await query(
+      `DELETE FROM unit_ical_blocks b
+       USING units u
+       WHERE u.id = $1 AND b.wp_post_id = u.wp_post_id
+         AND b.date >= $2::date AND b.date < $3::date`,
+      [unitId, checkIn, checkOut]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.delete(
   '/reservations/:id',
   requireRoles(
@@ -2733,6 +2800,13 @@ router.delete(
     'reservations',
     'operations',
     'operations_supervisor',
+    'hr',
+    'hr_supervisor',
+    'marketing_pr',
+    'finance',
+    'finance_manager',
+    'unit_acquisition_agent',
+    'unit_acquisition_manager',
     'admin'
   ),
   async (req, res, next) => {
@@ -2742,6 +2816,48 @@ router.delete(
     const existing = await loadReservationAccess(id);
     if (!existing) return res.status(404).json({ error: 'Reservation not found' });
     await assertReservationOwned(req.user, existing);
+
+    if (existing.ota_event_uid) {
+      const { rows } = await query(
+        `UPDATE reservations
+         SET status = 'cancelled',
+             ota_removed_at = NULL,
+             notes = btrim(COALESCE(notes, '') || ' Removed from the schedule.'),
+             updated_at = now()
+         WHERE id = $1
+         RETURNING *`,
+        [id]
+      );
+      try {
+        const { syncBlocksForReservation } = require('../../lib/reservationBlocks');
+        if (rows[0]) await syncBlocksForReservation(rows[0]);
+      } catch (err) {
+        console.warn('[reservations] block release on delete failed', err.message);
+      }
+      if (rows[0]) {
+        await query(
+          `DELETE FROM unit_ical_blocks b
+           USING units u
+           WHERE u.id = $1 AND b.wp_post_id = u.wp_post_id
+             AND b.date >= $2::date AND b.date < $3::date`,
+          [rows[0].unit_id, rows[0].check_in, rows[0].check_out]
+        );
+      }
+      await logAudit({
+        userId: req.user.id,
+        action: 'DELETE_RESERVATION',
+        entityType: 'reservation',
+        entityId: id,
+        details: {
+          guest_name: rows[0]?.guest_name || null,
+          unit_id: rows[0]?.unit_id || null,
+          check_in: rows[0]?.check_in || null,
+          check_out: rows[0]?.check_out || null,
+          kept_as_calendar_dismissal: true,
+        },
+      });
+      return res.json(rows[0]);
+    }
 
     const bookingId = existing.booking_id;
 
@@ -2956,6 +3072,7 @@ router.get('/reservations/schedule', async (req, res, next) => {
       `SELECT r.id, r.unit_id, r.guest_name, r.guest_email, r.guest_phone, r.guest_nationality,
               r.check_in::text AS check_in, r.check_out::text AS check_out, r.nights,
               r.total_amount, r.price_per_night, r.amount_paid, r.payment_status, r.booking_source,
+              r.currency, r.exchange_rate,
               r.sales_person_id, r.is_owner_reservation, r.status, r.notes, r.booking_id,
               r.hold_expires_at, r.created_by, r.created_at,
               CASE

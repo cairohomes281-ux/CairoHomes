@@ -1676,6 +1676,7 @@ export default function Reservations() {
             <table className="table text-xs">
               <thead>
                 <tr>
+                  <SortTh col="created_at" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="whitespace-nowrap">Created</SortTh>
                   <SortTh col="check_in" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="whitespace-nowrap">Check In</SortTh>
                   <SortTh col="check_out" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="whitespace-nowrap">Check Out</SortTh>
                   <SortTh col="unit_number" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="whitespace-nowrap">Unit</SortTh>
@@ -1743,6 +1744,7 @@ export default function Reservations() {
                         if (canView) setViewRes(r.id);
                       }}
                     >
+                      <td className="whitespace-nowrap">{r.created_at ? formatDateTime(r.created_at) : '—'}</td>
                       <td className="whitespace-nowrap">{formatDate(r.check_in)}</td>
                       <td className="whitespace-nowrap">{formatDate(r.check_out)}</td>
                       <td className="whitespace-nowrap font-medium text-gray-800">{r.unit_number || '—'}</td>

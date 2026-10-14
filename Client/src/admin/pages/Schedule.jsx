@@ -481,10 +481,12 @@ function ReservationDetailModal({
   seed,
   unitName,
   canWrite,
+  canDelete,
   onMoveUnit,
   onEdit,
   onCancel,
   onDelete,
+  onFillDetails,
   cancelling,
   deleting,
   canExtend,
@@ -524,6 +526,7 @@ function ReservationDetailModal({
   const isHold = !!(res?.is_hold || res?.status === 'hold');
   const isOwner = Number(res?.is_owner_reservation) === 1 || res?.is_owner_reservation === true;
   const canAct = canWrite && res && !cancelled && !isWebsitePending;
+  const canRemove = !!canDelete && res && !cancelled && !isWebsitePending;
   const nights = nightsBetween(res?.check_in, res?.check_out);
   const roomName = res?.unit_title || unitName || res?.unit_name || 'Your apartment';
   const unitCode = res?.unit_number || res?.unit_name;
@@ -706,20 +709,27 @@ function ReservationDetailModal({
               >
                 Cancel booking
               </button>
-              <button
-                type="button"
-                className="sch-btn sch-btn--danger"
-                disabled={cancelling || deleting}
-                onClick={() => onDelete?.(res)}
-              >
-                <Trash2 /> Delete
-              </button>
               {!isOwner && (
                 <button type="button" className="sch-btn" onClick={() => onMoveUnit?.(res)}>
                   Move unit
                 </button>
               )}
             </>
+          )}
+          {canRemove && (
+            <button
+              type="button"
+              className="sch-btn sch-btn--danger"
+              disabled={deleting}
+              onClick={() => onDelete?.(res)}
+            >
+              <Trash2 /> Delete
+            </button>
+          )}
+          {canRemove && otaDetailsNeeded(res) && (
+            <button type="button" className="sch-btn" onClick={() => onFillDetails?.(res)}>
+              Add guest details
+            </button>
           )}
           {canAct || (canExtend && res && !cancelled && isPlatformStay(res)) ? (
             <div className="sch-edit-pair">
@@ -1108,6 +1118,7 @@ export default function Schedule() {
   const [otaFill,           setOtaFill]           = useState(null);
   const [cancelConfirmId,   setCancelConfirmId]   = useState(null);
   const [deleteConfirmId,   setDeleteConfirmId]   = useState(null);
+  const [dismissBlock,      setDismissBlock]      = useState(null);
   const [transferRes,       setTransferRes]       = useState(null);
 
   
@@ -1449,6 +1460,7 @@ export default function Schedule() {
     mutationFn: (id) => api.delete(`/reservations/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['schedule'] });
+      qc.invalidateQueries({ queryKey: ['calendar-blocks'] });
       qc.invalidateQueries({ queryKey: ['reservations'] });
       qc.invalidateQueries({ queryKey: ['reservation-detail'] });
       toast.success('Reservation deleted');
@@ -1457,6 +1469,24 @@ export default function Schedule() {
       setDetailSeed(null);
     },
     onError: (e) => toast.error(e.response?.data?.error || 'Error deleting reservation'),
+  });
+
+  const dismissBlockMutation = useMutation({
+    mutationFn: (block) => api.post('/reservations/dismiss-block', {
+      unit_id: block.unit_id,
+      check_in: normDate(block.check_in),
+      check_out: normDate(block.check_out),
+      booking_source: block.booking_source,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['schedule'] });
+      qc.invalidateQueries({ queryKey: ['calendar-blocks'] });
+      qc.invalidateQueries({ queryKey: ['reservations'] });
+      toast.success('Reservation deleted');
+      setDismissBlock(null);
+      setOtaFill(null);
+    },
+    onError: (e) => toast.error(e.response?.data?.error || 'Could not delete this stay'),
   });
 
   
@@ -1699,7 +1729,7 @@ export default function Schedule() {
 
   const handleResClick = useCallback((res) => {
     if (suppressClickRef.current || dragSelectRef.current) return;
-    if (otaDetailsNeeded(res) && canManageReservations) {
+    if (res.synthetic_ota_block && otaDetailsNeeded(res) && canManageReservations) {
       setOtaFill(res);
       return;
     }
@@ -2655,7 +2685,16 @@ export default function Schedule() {
         onUnblock={(unitId, from, to) => blockMutation.mutate({ unit_id: unitId, from_date: from, to_date: to, clear: true })}
       />
 
-      <OtaDetailsModal open={!!otaFill} onClose={() => setOtaFill(null)} reservation={otaFill} />
+      <OtaDetailsModal
+        open={!!otaFill}
+        onClose={() => setOtaFill(null)}
+        reservation={otaFill}
+        onDelete={() => {
+          if (!otaFill) return;
+          if (otaFill.synthetic_ota_block) setDismissBlock(otaFill);
+          else setDeleteConfirmId(otaFill.id);
+        }}
+      />
 
       <ReservationDetailModal
         open={detailModal}
@@ -2667,6 +2706,7 @@ export default function Schedule() {
         seed={detailSeed}
         unitName={unitNameById[detailSeed?.unit_id]}
         canWrite={canWrite}
+        canDelete={canManageReservations}
         canExtend={canManageReservations}
         cancelling={cancelReservationMutation.isPending}
         deleting={deleteReservationMutation.isPending}
@@ -2682,6 +2722,10 @@ export default function Schedule() {
           setCancelConfirmId(res.id);
         }}
         onDelete={(res) => setDeleteConfirmId(res.id)}
+        onFillDetails={(res) => {
+          setOtaFill(res);
+          setDetailModal(false);
+        }}
       />
 
       <ConfirmDialog
@@ -2707,6 +2751,17 @@ export default function Schedule() {
         loading={deleteReservationMutation.isPending}
         title="Delete reservation?"
         message="Permanently delete this reservation from the system. This cannot be undone."
+        confirmText="Delete"
+        danger
+      />
+
+      <ConfirmDialog
+        open={!!dismissBlock}
+        onClose={() => setDismissBlock(null)}
+        onConfirm={() => dismissBlockMutation.mutate(dismissBlock)}
+        loading={dismissBlockMutation.isPending}
+        title="Delete reservation?"
+        message="Remove this stay from the schedule. It will not be imported again from Airbnb or Booking.com."
         confirmText="Delete"
         danger
       />

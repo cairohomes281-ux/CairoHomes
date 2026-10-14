@@ -3,7 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import Modal from './ui/Modal';
+import ReservationCurrencyPicker from './ReservationCurrencyPicker';
 import { formatDate } from '../utils/formatters';
+import { reservationCurrencyError, toEgpPayload } from '../utils/reservationCurrency';
 import { isoDateOnly } from '../../utils/stayNights';
 
 const PLACEHOLDER_NAMES = new Set(['airbnb guest', 'booking.com guest']);
@@ -28,13 +30,15 @@ function money(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
-export default function OtaDetailsModal({ open, onClose, reservation }) {
+export default function OtaDetailsModal({ open, onClose, reservation, onDelete }) {
   const qc = useQueryClient();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [price, setPrice] = useState('');
   const [total, setTotal] = useState('');
+  const [currencyForm, setCurrencyForm] = useState({ currency: 'EGP', exchange_rate: '' });
   const nights = nightsOf(reservation);
+  const currencyCode = currencyForm.currency === 'USD' ? 'USD' : 'EGP';
   const airbnb = String(reservation?.booking_source || '').trim().toLowerCase() === 'airbnb';
 
   useEffect(() => {
@@ -54,6 +58,13 @@ export default function OtaDetailsModal({ open, onClose, reservation }) {
       setPrice('');
       setTotal('');
     }
+    setCurrencyForm({
+      currency: reservation.currency === 'USD' ? 'USD' : 'EGP',
+      exchange_rate:
+        reservation.currency === 'USD' && Number(reservation.exchange_rate) > 0
+          ? String(reservation.exchange_rate)
+          : '',
+    });
   }, [open, reservation]);
 
   const saveMutation = useMutation({
@@ -104,11 +115,20 @@ export default function OtaDetailsModal({ open, onClose, reservation }) {
     if (!(nightly > 0) && !(stayTotal > 0)) {
       return toast.error('Enter the total or the price per night');
     }
+    const currencyError = reservationCurrencyError(currencyForm);
+    if (currencyError) return toast.error(currencyError);
+    const priced = toEgpPayload({
+      ...currencyForm,
+      price_per_night: nightly > 0 ? money(nightly) : money(stayTotal / nights),
+      total_amount: stayTotal > 0 ? money(stayTotal) : money(nightly * nights),
+    });
     saveMutation.mutate({
       guest_name: guestName,
       guest_phone: guestPhone,
-      price_per_night: nightly > 0 ? money(nightly) : money(stayTotal / nights),
-      total_amount: stayTotal > 0 ? money(stayTotal) : money(nightly * nights),
+      price_per_night: priced.price_per_night,
+      total_amount: priced.total_amount,
+      currency: priced.currency,
+      exchange_rate: priced.exchange_rate,
       booking_source: reservation.booking_source,
       fill_ota_details: true,
     });
@@ -122,6 +142,11 @@ export default function OtaDetailsModal({ open, onClose, reservation }) {
       size="sm"
       footer={
         <>
+          {onDelete ? (
+            <button type="button" className="btn-secondary text-rose-700" onClick={onDelete}>
+              Delete
+            </button>
+          ) : null}
           <button type="button" className="btn-secondary" onClick={onClose}>
             Cancel
           </button>
@@ -149,9 +174,10 @@ export default function OtaDetailsModal({ open, onClose, reservation }) {
             <label className="label">Phone number</label>
             <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20…" />
           </div>
+          <ReservationCurrencyPicker form={currencyForm} setForm={setCurrencyForm} />
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Price / night (EGP)</label>
+              <label className="label">Price / night ({currencyCode})</label>
               <input
                 type="number"
                 min="0"
@@ -163,7 +189,7 @@ export default function OtaDetailsModal({ open, onClose, reservation }) {
               />
             </div>
             <div>
-              <label className="label">Total (EGP)</label>
+              <label className="label">Total ({currencyCode})</label>
               <input
                 type="number"
                 min="0"
