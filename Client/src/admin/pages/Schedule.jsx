@@ -1405,7 +1405,7 @@ export default function Schedule() {
         handlePriceClick(unit, start, end);
         return;
       }
-      if (start < TODAY && !isAdmin) return toast.error('Past dates can’t be booked');
+      if (start < TODAY && !canManageReservations) return toast.error('Past dates can’t be booked');
       if (blockSrc) {
         if (canEditSchedulePricing) {
           handlePriceClick(unit, start, end);
@@ -1423,7 +1423,7 @@ export default function Schedule() {
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [priceMode, canEditSchedulePricing, canReserveLongTermUnits, isAdmin, blockMap, handlePriceClick, TODAY, user?.id]
+    [priceMode, canEditSchedulePricing, canReserveLongTermUnits, canManageReservations, blockMap, handlePriceClick, TODAY, user?.id]
   );
 
   const clearDragPaint = useCallback(() => {
@@ -1574,7 +1574,7 @@ export default function Schedule() {
   const startCellGesture = useCallback(
     (unit, dateStr, event) => {
       if (event.button !== 0) return;
-      const minDate = isAdmin && !priceMode ? '0000-00-00' : TODAY;
+      const minDate = canManageReservations && !priceMode ? '0000-00-00' : TODAY;
       const base = {
         unitId: unit.id,
         unit,
@@ -1599,7 +1599,7 @@ export default function Schedule() {
         /* ignore */
       }
     },
-    [TODAY, isAdmin, priceMode]
+    [TODAY, canManageReservations, priceMode]
   );
 
   const handleResClick = useCallback((res) => {
@@ -1938,7 +1938,7 @@ export default function Schedule() {
     if (d === TODAY) cls += ' sch-cell--today';
     const actionable = priceMode
       ? canEditPrice && !isPast
-      : (!isPast || isAdmin) && !blockSrc && (!isLongTermUnit || canReserveLongTermUnits);
+      : (!isPast || canManageReservations) && !blockSrc && (!isLongTermUnit || canReserveLongTermUnits);
     if (actionable) cls += ' sch-cell--open';
     const blockName = otaLook
       ? otaLook.label
@@ -2680,7 +2680,7 @@ export default function Schedule() {
           onTransferProofChange={setCreateProof}
           lockSalesPerson={!isAdmin}
           currentUserName={user?.full_name || user?.username || ''}
-          allowPastDates={isAdmin}
+          allowPastDates={canManageReservations}
           onCancel={() => { setCreateDrawer(false); setCreateProof(null); }}
           onSubmit={handleCreateReservation}
           submitting={createReservationMutation.isPending}
