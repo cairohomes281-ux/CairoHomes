@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseIcalEvents, isReservationEvent, airbnbDetails } = require('./otaIcalReservations');
+const { parseIcalEvents, isReservationEvent, airbnbDetails, stayToCancel } = require('./otaIcalReservations');
 
 const AIRBNB_ICS = `BEGIN:VCALENDAR
 PRODID:-//Airbnb Inc//Hosting Calendar 1.0//EN
@@ -52,6 +52,42 @@ describe('isReservationEvent', () => {
     const [ev] = parseIcalEvents(BOOKING_ICS);
     assert.equal(isReservationEvent('booking', ev), true);
     assert.equal(isReservationEvent('other', ev), false);
+  });
+});
+
+describe('stayToCancel', () => {
+  const airbnb = {
+    id: 1,
+    booking_source: 'Airbnb',
+    ota_event_uid: 'a',
+    status: 'confirmed',
+    guest_name: 'Airbnb guest',
+    guest_phone: '',
+    total_amount: 0,
+    check_in: '2026-10-14',
+    check_out: '2026-10-18',
+  };
+  const booking = {
+    ...airbnb,
+    id: 2,
+    booking_source: 'Booking.com',
+    ota_event_uid: 'b',
+    guest_name: 'Booking.com guest',
+    check_in: '2026-10-16',
+    check_out: '2026-10-20',
+  };
+
+  it('drops the Booking.com echo when both stays still need details', () => {
+    assert.equal(stayToCancel(airbnb, booking)?.id, 2);
+  });
+
+  it('keeps a stay that already has guest details', () => {
+    const filled = { ...booking, guest_name: 'Sara Ali', guest_phone: '0100', total_amount: 3000 };
+    assert.equal(stayToCancel(airbnb, filled)?.id, 1);
+  });
+
+  it('leaves two stays that do not share a night', () => {
+    assert.equal(stayToCancel(airbnb, { ...booking, check_in: '2026-10-18', check_out: '2026-10-21' }), null);
   });
 });
 

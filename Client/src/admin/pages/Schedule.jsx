@@ -100,6 +100,51 @@ function buildSegments(unitRes, dateStrs) {
   return segs;
 }
 
+function isOtaStay(stay) {
+  const source = String(stay?.booking_source || '').trim().toLowerCase();
+  return source === 'airbnb' || source === 'booking.com' || source === 'booking';
+}
+
+function isUnfilledOtaStay(stay) {
+  if (!stay || stay.status === 'cancelled' || !isOtaStay(stay)) return false;
+  if (!stay.ota_event_uid && !stay.synthetic_ota_block && !stay.ota_details_needed) return false;
+  const name = String(stay.guest_name || '').trim().toLowerCase();
+  const phone = String(stay.guest_phone || '').trim();
+  const total = Number(stay.total_amount) || 0;
+  return total <= 0 || !phone || name === 'airbnb guest' || name === 'booking.com guest' || name === '';
+}
+
+function stayToHide(a, b) {
+  const aIn = a.ci || a.check_in;
+  const aOut = a.co || a.check_out;
+  const bIn = b.ci || b.check_in;
+  const bOut = b.co || b.check_out;
+  if (!(aIn < bOut && aOut > bIn)) return null;
+  const aOpen = isUnfilledOtaStay(a);
+  const bOpen = isUnfilledOtaStay(b);
+  if (!aOpen && !bOpen) return null;
+  if (aOpen && !bOpen) return a;
+  if (bOpen && !aOpen) return b;
+  const aAirbnb = String(a.booking_source || '').trim().toLowerCase() === 'airbnb';
+  const bAirbnb = String(b.booking_source || '').trim().toLowerCase() === 'airbnb';
+  if (aAirbnb && !bAirbnb) return b;
+  if (bAirbnb && !aAirbnb) return a;
+  return String(aIn) > String(bIn) ? a : b;
+}
+
+function withoutOverlappingOtaEchoes(stays) {
+  const hidden = new Set();
+  for (let i = 0; i < stays.length; i += 1) {
+    if (hidden.has(stays[i].id) || stays[i].status === 'cancelled') continue;
+    for (let j = i + 1; j < stays.length; j += 1) {
+      if (hidden.has(stays[j].id) || stays[j].status === 'cancelled') continue;
+      const loser = stayToHide(stays[i], stays[j]);
+      if (loser) hidden.add(loser.id);
+    }
+  }
+  return hidden.size ? stays.filter((stay) => !hidden.has(stay.id)) : stays;
+}
+
 function otaBlockReservations(unit, dateStrs, blockMap, stays) {
   const covered = new Set();
   for (const stay of stays) {
@@ -118,12 +163,17 @@ function otaBlockReservations(unit, dateStrs, blockMap, stays) {
       i += 1;
       continue;
     }
-    const source = blocks[day];
     const start = day;
+    let sawAirbnb = platform === 'airbnb';
     i += 1;
-    while (i < dateStrs.length && blocks[dateStrs[i]] === source && !covered.has(dateStrs[i])) i += 1;
+    while (i < dateStrs.length && !covered.has(dateStrs[i])) {
+      const next = otaPlatformFromSource(blocks[dateStrs[i]]);
+      if (next !== 'airbnb' && next !== 'booking') break;
+      if (next === 'airbnb') sawAirbnb = true;
+      i += 1;
+    }
     const end = addDays(dateStrs[i - 1], 1);
-    const label = platform === 'booking' ? 'Booking.com' : 'Airbnb';
+    const label = sawAirbnb ? 'Airbnb' : 'Booking.com';
     out.push({
       id: `ota-block-${unit.id}-${start}`,
       unit_id: unit.id,
@@ -137,6 +187,7 @@ function otaBlockReservations(unit, dateStrs, blockMap, stays) {
       nights: i - dateStrs.indexOf(start),
       status: 'confirmed',
       total_amount: 0,
+      ota_event_uid: `schedule-block:${unit.id}:${start}`,
       ota_details_needed: true,
       synthetic_ota_block: true,
     });
@@ -2029,7 +2080,7 @@ export default function Schedule() {
   };
 
   const renderUnitRow = (unit) => {
-    const stays = resByUnit[unit.id] || [];
+    const stays = withoutOverlappingOtaEchoes(resByUnit[unit.id] || []);
     const segs = buildSegments([...stays, ...otaBlockReservations(unit, dateStrs, blockMap, stays)], dateStrs);
     const code = unitDisplay(unit);
     const name = unit.name || unit.title || '';

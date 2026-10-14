@@ -67,6 +67,88 @@ function nightsBetween(checkIn, checkOut) {
   return Math.max(1, Math.round((new Date(checkOut) - new Date(checkIn)) / 86400000));
 }
 
+function isOtaBookingSource(source) {
+  const value = String(source || '').trim().toLowerCase();
+  return value === 'airbnb' || value === 'booking.com' || value === 'booking';
+}
+
+function isUnfilledOtaStay(row) {
+  if (!row || row.status === 'cancelled' || !isOtaBookingSource(row.booking_source)) return false;
+  if (!row.ota_event_uid) return false;
+  const name = String(row.guest_name || '').trim().toLowerCase();
+  const phone = String(row.guest_phone || '').trim();
+  const total = Number(row.total_amount) || 0;
+  return total <= 0 || !phone || name === 'airbnb guest' || name === 'booking.com guest' || name === '';
+}
+
+function rangesOverlap(a, b) {
+  const aIn = a.check_in || a.ci;
+  const aOut = a.check_out || a.co;
+  const bIn = b.check_in || b.ci;
+  const bOut = b.check_out || b.co;
+  return aIn < bOut && aOut > bIn;
+}
+
+/** When both calendars describe the same nights, keep one stay and drop the echo. */
+function stayToCancel(a, b) {
+  if (!rangesOverlap(a, b)) return null;
+  const aOpen = isUnfilledOtaStay(a);
+  const bOpen = isUnfilledOtaStay(b);
+  if (!aOpen && !bOpen) return null;
+  if (aOpen && !bOpen) return a;
+  if (bOpen && !aOpen) return b;
+  const aAirbnb = String(a.booking_source || '').trim().toLowerCase() === 'airbnb';
+  const bAirbnb = String(b.booking_source || '').trim().toLowerCase() === 'airbnb';
+  if (aAirbnb && !bAirbnb) return b;
+  if (bAirbnb && !aAirbnb) return a;
+  return String(a.check_in || a.ci) > String(b.check_in || b.ci) ? a : b;
+}
+
+async function collapseOverlappingOtaStays() {
+  const { rows } = await query(
+    `SELECT id, unit_id, guest_name, guest_phone, total_amount::float AS total_amount,
+            check_in::text AS check_in, check_out::text AS check_out,
+            booking_source, ota_event_uid, status
+     FROM reservations
+     WHERE status <> 'cancelled'
+       AND ota_event_uid IS NOT NULL
+       AND check_out >= CURRENT_DATE - 1
+       AND lower(trim(booking_source)) IN ('airbnb', 'booking.com', 'booking')`
+  );
+  const byUnit = new Map();
+  for (const row of rows) {
+    if (!byUnit.has(row.unit_id)) byUnit.set(row.unit_id, []);
+    byUnit.get(row.unit_id).push(row);
+  }
+  let cancelled = 0;
+  for (const list of byUnit.values()) {
+    const dropped = new Set();
+    for (let i = 0; i < list.length; i += 1) {
+      if (dropped.has(list[i].id)) continue;
+      for (let j = i + 1; j < list.length; j += 1) {
+        if (dropped.has(list[j].id)) continue;
+        const loser = stayToCancel(list[i], list[j]);
+        if (loser) dropped.add(loser.id);
+      }
+    }
+    for (const id of dropped) {
+      const { rows: updated } = await query(
+        `UPDATE reservations
+         SET status = 'cancelled',
+             notes = btrim(COALESCE(notes, '') || ' Cancelled because these nights are already on the other calendar.'),
+             updated_at = now()
+         WHERE id = $1 AND status <> 'cancelled'
+         RETURNING *`,
+        [id]
+      );
+      if (!updated[0]) continue;
+      await syncBlocksForReservation(updated[0]);
+      cancelled += 1;
+    }
+  }
+  return cancelled;
+}
+
 async function systemStaffId() {
   const { rows } = await query(
     `SELECT id FROM staff_users WHERE role = 'admin' ORDER BY is_active DESC, id LIMIT 1`
@@ -267,6 +349,11 @@ async function importReservationsForFeeds(items) {
       console.warn('[ota-ical] reservation import failed', feed.platform, feed.unit_slug, err.message);
     }
   }
+  try {
+    totals.cancelled += await collapseOverlappingOtaStays();
+  } catch (err) {
+    console.warn('[ota-ical] overlap cleanup failed', err.message);
+  }
   return totals;
 }
 
@@ -274,6 +361,7 @@ module.exports = {
   parseIcalEvents,
   isReservationEvent,
   airbnbDetails,
+  stayToCancel,
   importFeedReservations,
   importReservationsForFeeds,
 };
