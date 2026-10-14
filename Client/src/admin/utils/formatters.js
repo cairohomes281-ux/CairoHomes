@@ -35,8 +35,7 @@ export const getStatusConfig = (status) =>
 
 export const BOOKING_SOURCES = [
   'Website',
-  'Airbnb',
-  'Booking.com',
+  'Outside Channel',
   'Manual',
   'Broker',
   'Campaign',
@@ -46,8 +45,7 @@ export const BOOKING_SOURCES = [
 export const RESERVATION_CHANNELS = [
   { key: 'website', label: 'Website' },
   { key: 'manual', label: 'Manual' },
-  { key: 'airbnb', label: 'Airbnb' },
-  { key: 'booking', label: 'Booking.com' },
+  { key: 'outside', label: 'Outside Channel' },
 ];
 
 export function reservationChannel(r) {
@@ -56,9 +54,14 @@ export function reservationChannel(r) {
   if (r?.booking_id || lower === 'website' || lower === 'web') {
     return { key: 'website', label: 'Website', detail: null };
   }
-  if (lower === 'airbnb') return { key: 'airbnb', label: 'Airbnb', detail: null };
-  if (lower === 'booking' || lower === 'booking.com' || lower === 'bookingcom') {
-    return { key: 'booking', label: 'Booking.com', detail: null };
+  if (
+    lower === 'outside channel' ||
+    lower === 'airbnb' ||
+    lower === 'booking' ||
+    lower === 'booking.com' ||
+    lower === 'bookingcom'
+  ) {
+    return { key: 'outside', label: 'Outside Channel', detail: null };
   }
   return {
     key: 'manual',

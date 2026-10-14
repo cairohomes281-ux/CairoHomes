@@ -1,6 +1,6 @@
 
 const { query } = require('../config/db');
-const { isAirbnbBookingSource } = require('./bookingSources');
+const { isAirbnbBookingSource, isOutsideChannelSource } = require('./bookingSources');
 
 function paymentStatusFrom(totalAmount, amountPaid) {
   const total = Math.max(0, Number(totalAmount) || 0);
@@ -15,11 +15,26 @@ async function syncReservationPaymentStatus(reservationId) {
   if (!reservationId) return null;
 
   const { rows: resRows } = await query(
-    `SELECT id, total_amount, status, down_payment, booking_source FROM reservations WHERE id = $1`,
+    `SELECT id, total_amount, amount_paid, payment_status, status, down_payment, booking_source, ota_event_uid
+     FROM reservations WHERE id = $1`,
     [reservationId]
   );
   const reservation = resRows[0];
   if (!reservation) return null;
+
+  const alreadyPaid =
+    String(reservation.payment_status || '').toLowerCase() === 'paid' &&
+    Number(reservation.amount_paid) + 0.5 >= Number(reservation.total_amount) &&
+    Number(reservation.total_amount) > 0;
+  if (alreadyPaid && isOutsideChannelSource(reservation.booking_source) && reservation.ota_event_uid) {
+    const { rows: recorded } = await query(
+      `SELECT 1 FROM payments
+       WHERE reservation_id = $1 AND status = 'successful' AND COALESCE(is_approved, 0) = 1
+       LIMIT 1`,
+      [reservationId]
+    );
+    if (!recorded[0]) return reservation;
+  }
 
   if (isAirbnbBookingSource(reservation.booking_source)) {
     const current = String(reservation.status || '').toLowerCase();

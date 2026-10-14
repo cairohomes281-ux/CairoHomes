@@ -1,6 +1,13 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseIcalEvents, isReservationEvent, airbnbDetails, stayToCancel } = require('./otaIcalReservations');
+const {
+  parseIcalEvents,
+  isReservationEvent,
+  airbnbDetails,
+  stayToCancel,
+  confirmStayDates,
+  splitParentUid,
+} = require('./otaIcalReservations');
 
 const AIRBNB_ICS = `BEGIN:VCALENDAR
 PRODID:-//Airbnb Inc//Hosting Calendar 1.0//EN
@@ -48,9 +55,9 @@ describe('isReservationEvent', () => {
     assert.equal(isReservationEvent('airbnb', block), true);
   });
 
-  it('treats Booking.com closed events as reservations', () => {
+  it('does not import Booking.com events, because that calendar already follows Airbnb', () => {
     const [ev] = parseIcalEvents(BOOKING_ICS);
-    assert.equal(isReservationEvent('booking', ev), true);
+    assert.equal(isReservationEvent('booking', ev), false);
     assert.equal(isReservationEvent('other', ev), false);
   });
 });
@@ -88,6 +95,30 @@ describe('stayToCancel', () => {
 
   it('leaves two stays that do not share a night', () => {
     assert.equal(stayToCancel(airbnb, { ...booking, check_in: '2026-10-18', check_out: '2026-10-21' }), null);
+  });
+});
+
+describe('confirmStayDates', () => {
+  it('splits a blocked span into the stay the staff confirms and the nights left over', () => {
+    const confirmed = confirmStayDates('2026-10-21', '2026-10-25', '2026-10-21', '2026-10-23');
+    assert.equal(confirmed.error, undefined);
+    assert.deepEqual(confirmed.leftovers, [['2026-10-23', '2026-10-25']]);
+  });
+
+  it('keeps a night before the confirmed stay as its own reservation', () => {
+    const confirmed = confirmStayDates('2026-10-21', '2026-10-25', '2026-10-23', '2026-10-25');
+    assert.deepEqual(confirmed.leftovers, [['2026-10-21', '2026-10-23']]);
+  });
+
+  it('refuses dates outside the blocked nights', () => {
+    const confirmed = confirmStayDates('2026-10-21', '2026-10-25', '2026-10-20', '2026-10-23');
+    assert.match(confirmed.error, /inside the blocked nights/);
+  });
+
+  it('reads the parent id from a split stay', () => {
+    const uid = 'split:abc%40airbnb.com:2026-10-23:2026-10-25';
+    assert.equal(splitParentUid(uid), 'abc@airbnb.com');
+    assert.equal(splitParentUid('real-event@airbnb.com'), null);
   });
 });
 

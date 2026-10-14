@@ -2027,7 +2027,7 @@ const OTA_DETAILS_NEEDED_SQL = `(
   r.ota_event_uid IS NOT NULL AND r.status <> 'cancelled' AND (
     COALESCE(r.total_amount, 0) <= 0
     OR NULLIF(btrim(COALESCE(r.guest_phone, '')), '') IS NULL
-    OR r.guest_name IN ('Airbnb guest', 'Booking.com guest')
+    OR r.guest_name IN ('Airbnb guest', 'Booking.com guest', 'Outside Channel guest')
   )
 )`;
 
@@ -2191,6 +2191,28 @@ router.post(
 
     
     const otaBlockStay = truthyFlag(b.ota_block_stay);
+    let outsideSplit = null;
+    if (otaBlockStay) {
+      const { confirmStayDates } = require('../../services/otaIcalReservations');
+      const confirmed = confirmStayDates(
+        b.ota_span_check_in || b.check_in,
+        b.ota_span_check_out || b.check_out,
+        b.check_in,
+        b.check_out
+      );
+      if (confirmed.error) return res.status(400).json({ error: confirmed.error });
+      if (!b.currency) return res.status(400).json({ error: 'Choose EGP or USD before entering the price' });
+      b.booking_source = 'Outside Channel';
+      outsideSplit = {
+        unitId: b.unit_id,
+        spanIn: confirmed.spanStart,
+        spanOut: confirmed.spanEnd,
+        stayIn: confirmed.start,
+        stayOut: confirmed.end,
+        parentUid: b.ota_event_uid || `schedule-block:${b.unit_id}:${confirmed.spanStart}`,
+        createdBy: req.user.id,
+      };
+    }
     if (otaBlockStay) {
       const { rows: clash } = await query(
         `SELECT 1 FROM reservations
@@ -2376,6 +2398,10 @@ router.post(
       await syncBlocksForReservation(reservation);
     } catch (err) {
       console.warn('[reservations] block sync failed', err.message);
+    }
+    if (outsideSplit && reservation) {
+      const { finalizeOutsideChannelSplit } = require('../../services/otaIcalReservations');
+      await finalizeOutsideChannelSplit({ ...outsideSplit, reservationId: reservation.id });
     }
 
     await logAudit({
@@ -2744,7 +2770,7 @@ router.post('/reservations/dismiss-block', requireRoles(
     const unitId = req.body?.unit_id;
     const checkIn = String(req.body?.check_in || '').slice(0, 10);
     const checkOut = String(req.body?.check_out || '').slice(0, 10);
-    const source = String(req.body?.booking_source || 'Airbnb').trim() || 'Airbnb';
+    const source = 'Outside Channel';
     if (!unitId || !/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut) || checkOut <= checkIn) {
       return res.status(400).json({ error: 'Unit, check-in, and check-out are required' });
     }
@@ -2767,7 +2793,7 @@ router.post('/reservations/dismiss-block', requireRoles(
          ) VALUES ($1,$2,$3::date,$4::date,$5,0,0,'pending',$6,'cancelled',$7,1,$8,$9)`,
         [
           unitId,
-          /book/i.test(source) ? 'Booking.com guest' : 'Airbnb guest',
+          'Outside Channel guest',
           checkIn,
           checkOut,
           nights,

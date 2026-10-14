@@ -3,7 +3,7 @@ const { CHANNEL_REPORT_BUCKETS, channelReportBucket } = require('../bookingSourc
 
 /**
  * Per-channel reservation counts and revenue for dashboards.
- * Buckets: Airbnb, Booking.com, Website, Manual (other sources fold into Manual).
+ * Buckets: Outside Channel, Website, Manual (other sources fold into Manual).
  */
 async function channelRevenueSummary({ from = null, to = null, agentId = null } = {}) {
   const params = [];

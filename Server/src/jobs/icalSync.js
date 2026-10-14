@@ -24,7 +24,7 @@ function startIcalSyncJob() {
   const timer = setInterval(tick, INTERVAL_MS);
   if (timer.unref) timer.unref();
   setTimeout(tick, 5000);
-  console.log('[ical-sync] Airbnb and Booking.com calendars sync every minute');
+  console.log('[ical-sync] Airbnb calendar syncs every minute');
   return timer;
 }
 

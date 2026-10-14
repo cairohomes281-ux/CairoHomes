@@ -2,12 +2,19 @@ import api from '../api/axios';
 
 const CURRENCIES = ['EGP', 'USD'];
 
-export default function ReservationCurrencyPicker({ form, setForm, inputClass = 'input', labelClass = 'label' }) {
+export default function ReservationCurrencyPicker({
+  form,
+  setForm,
+  inputClass = 'input',
+  labelClass = 'label',
+  requireChoice = false,
+}) {
   const isUsd = form.currency === 'USD';
   const rate = Number(form.exchange_rate);
 
   async function choose(code) {
-    if (code === form.currency || (code === 'EGP' && !form.currency)) return;
+    if (code === form.currency) return;
+    if (!requireChoice && code === 'EGP' && !form.currency) return;
     setForm((cur) => ({ ...cur, currency: code }));
     if (code === 'USD' && !(Number(form.exchange_rate) > 0)) {
       try {
@@ -27,7 +34,7 @@ export default function ReservationCurrencyPicker({ form, setForm, inputClass = 
         <p className={labelClass}>Currency</p>
         <div className="grid grid-cols-2 gap-2">
           {CURRENCIES.map((code) => {
-            const active = (form.currency || 'EGP') === code;
+            const active = requireChoice ? form.currency === code : (form.currency || 'EGP') === code;
             return (
               <button
                 key={code}

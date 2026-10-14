@@ -772,6 +772,11 @@ router.put('/ota-calendar/:unitId/:platform', requireRoles(...RESERVATIONS_CALEN
     const { runChannelSync } = require('../../lib/channelManager');
     const platform = normalizeOtaPlatform(req.params.platform);
     if (!platform) return res.status(400).json({ error: 'Invalid platform' });
+    if (platform !== 'airbnb') {
+      return res.status(400).json({
+        error: 'Link Airbnb only. Booking.com is connected to Airbnb, so it blocks the same nights.',
+      });
+    }
 
     const { rows: u } = await query(
       `SELECT id, wp_post_id, slug, title FROM units WHERE id = $1`,
@@ -1704,6 +1709,7 @@ router.put(
 
     const clearHold =
       b.is_hold === false || b.is_hold === 0 || b.is_hold === '0' || b.is_hold === 'false';
+    let outsideFill = null;
 
     if (b.extend_stay) {
       if (!b.check_out) return res.status(400).json({ error: 'Check-out date is required' });
@@ -1759,6 +1765,26 @@ router.put(
       if (blocks[0]) {
         return res.status(409).json({ error: 'Those extra nights are already booked' });
       }
+      const { rows: paidRows } = await query(
+        `SELECT COALESCE(total_amount, 0)::float AS total_amount,
+                COALESCE(amount_paid, 0)::float AS amount_paid,
+                payment_status, booking_source
+         FROM reservations WHERE id = $1`,
+        [req.params.id]
+      );
+      const paidRow = paidRows[0];
+      const { isOutsideChannelSource } = require('../../lib/bookingSources');
+      if (
+        paidRow &&
+        isOutsideChannelSource(paidRow.booking_source) &&
+        String(paidRow.payment_status || '').toLowerCase() === 'paid' &&
+        Number(paidRow.amount_paid) + 0.5 >= Number(paidRow.total_amount) &&
+        Number(paidRow.total_amount) > 0 &&
+        b.total_amount != null
+      ) {
+        b.amount_paid = b.total_amount;
+        b.payment_status = 'paid';
+      }
     }
 
     if (
@@ -1800,14 +1826,16 @@ router.put(
 
     if (b.fill_ota_details) {
       const { rows: otaRows } = await query(
-        `SELECT ota_event_uid, guest_name, guest_phone, COALESCE(total_amount, 0)::float AS total_amount,
-                status, GREATEST(COALESCE(nights, 1), 1)::int AS nights
+        `SELECT ota_event_uid, ota_feed_id, guest_name, guest_phone, COALESCE(total_amount, 0)::float AS total_amount,
+                status, GREATEST(COALESCE(nights, 1), 1)::int AS nights,
+                check_in::text AS check_in, check_out::text AS check_out, unit_id, created_by
          FROM reservations WHERE id = $1`,
         [req.params.id]
       );
       const row = otaRows[0];
+      const { isPlaceholderGuest, confirmStayDates } = require('../../services/otaIcalReservations');
       const storedName = String(row?.guest_name || '').trim().toLowerCase();
-      const placeholder = storedName === 'airbnb guest' || storedName === 'booking.com guest';
+      const placeholder = isPlaceholderGuest(storedName);
       const needs =
         row?.ota_event_uid &&
         String(row.status) !== 'cancelled' &&
@@ -1817,11 +1845,32 @@ router.put(
       }
       const guestName = String(b.guest_name || '').trim();
       const guestPhone = String(b.guest_phone || '').trim();
-      if (!guestName || guestName.toLowerCase() === 'airbnb guest' || guestName.toLowerCase() === 'booking.com guest') {
+      if (!guestName || isPlaceholderGuest(guestName)) {
         return res.status(400).json({ error: 'Enter the guest name' });
       }
       if (!guestPhone) return res.status(400).json({ error: 'Enter the phone number' });
-      const stayNights = Number(row.nights) || 1;
+      if (!b.currency) return res.status(400).json({ error: 'Choose EGP or USD before entering the price' });
+      const confirmed = confirmStayDates(row.check_in, row.check_out, b.check_in, b.check_out);
+      if (confirmed.error) return res.status(400).json({ error: confirmed.error });
+      b.check_in = confirmed.start;
+      b.check_out = confirmed.end;
+      b.booking_source = 'Outside Channel';
+      if (!(Number(row.total_amount) > 0)) {
+        b.payment_status = 'pending';
+        b.amount_paid = 0;
+      }
+      outsideFill = {
+        reservationId: Number(req.params.id),
+        unitId: row.unit_id,
+        spanIn: confirmed.spanStart,
+        spanOut: confirmed.spanEnd,
+        stayIn: confirmed.start,
+        stayOut: confirmed.end,
+        feedId: row.ota_feed_id,
+        parentUid: row.ota_event_uid,
+        createdBy: row.created_by || req.user.id,
+      };
+      const stayNights = Math.max(1, Math.round((new Date(confirmed.end) - new Date(confirmed.start)) / 86400000));
       let stayTotal = parseFloat(b.total_amount);
       let nightly = parseFloat(b.price_per_night);
       if (!(stayTotal > 0) && nightly > 0) stayTotal = Math.round(nightly * stayNights * 100) / 100;
@@ -1938,6 +1987,10 @@ router.put(
       await resyncReservationBlocks(existing, rows[0]);
     } catch (err) {
       console.warn('[reservations] block resync failed', err.message);
+    }
+    if (outsideFill && rows[0]) {
+      const { finalizeOutsideChannelSplit } = require('../../services/otaIcalReservations');
+      await finalizeOutsideChannelSplit(outsideFill);
     }
     res.json(rows[0]);
   } catch (e) {

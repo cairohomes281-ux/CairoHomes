@@ -3,23 +3,18 @@ const OTA_PLATFORM_LABELS = {
   booking: 'Booking.com',
 };
 
+const OUTSIDE_LOOK = {
+  badge: 'OC',
+  label: 'Outside Channel',
+  hatch: 'repeating-linear-gradient(135deg, #b5725a 0 3px, #fdf6f2 3px 7px)',
+  badgeClass: 'bg-[#b5725a] text-white shadow-sm',
+  ringClass: 'ring-1 ring-inset ring-[#b5725a]',
+  cellBg: 'bg-[#fdf6f2]',
+};
+
 const OTA_LOOK = {
-  airbnb: {
-    badge: 'AB',
-    label: 'Airbnb · outside booking',
-    hatch: 'repeating-linear-gradient(135deg, #FF5A5F 0 3px, #fff5f5 3px 7px)',
-    badgeClass: 'bg-[#FF5A5F] text-white shadow-sm',
-    ringClass: 'ring-1 ring-inset ring-[#FF5A5F]',
-    cellBg: 'bg-[#fff1f2]',
-  },
-  booking: {
-    badge: 'BK',
-    label: 'Booking.com · outside booking',
-    hatch: 'repeating-linear-gradient(135deg, #003580 0 3px, #eef3fb 3px 7px)',
-    badgeClass: 'bg-[#003580] text-white shadow-sm',
-    ringClass: 'ring-1 ring-inset ring-[#003580]',
-    cellBg: 'bg-[#e8eef8]',
-  },
+  airbnb: OUTSIDE_LOOK,
+  booking: OUTSIDE_LOOK,
 };
 
 export function isOtaBlockSource(source) {

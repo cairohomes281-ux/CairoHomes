@@ -1,11 +1,10 @@
-import { Globe, PenLine, Layers } from 'lucide-react';
+import { Globe, PenLine, Layers, ArrowLeftRight } from 'lucide-react';
 import { RESERVATION_CHANNELS, reservationChannel } from '../utils/formatters';
 
 export const CHANNEL_STYLES = {
   website: { color: '#2f5d58', soft: 'rgba(47,93,88,0.10)', Icon: Globe },
   manual: { color: '#b5725a', soft: 'rgba(181,114,90,0.12)', Icon: PenLine },
-  airbnb: { color: '#d9475a', soft: 'rgba(217,71,90,0.10)', mark: 'A' },
-  booking: { color: '#1f4e96', soft: 'rgba(31,78,150,0.10)', mark: 'B.' },
+  outside: { color: '#8a4f3a', soft: 'rgba(181,114,90,0.14)', Icon: ArrowLeftRight },
 };
 
 function ChannelMark({ channelKey, size = 'sm' }) {
@@ -50,7 +49,7 @@ export function ChannelTabs({ value, onChange, counts }) {
 
   return (
     <div className="rounded-2xl border border-ch-line bg-white p-2 shadow-sm">
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
         {tabs.map((t) => {
           const active = value === t.key;
           const count = t.key ? counts[t.key] || 0 : total;

@@ -102,7 +102,13 @@ function buildSegments(unitRes, dateStrs) {
 
 function isOtaStay(stay) {
   const source = String(stay?.booking_source || '').trim().toLowerCase();
-  return source === 'airbnb' || source === 'booking.com' || source === 'booking';
+  return (
+    source === 'outside channel' ||
+    source === 'airbnb' ||
+    source === 'booking.com' ||
+    source === 'booking' ||
+    source === 'bookingcom'
+  );
 }
 
 function isUnfilledOtaStay(stay) {
@@ -111,7 +117,14 @@ function isUnfilledOtaStay(stay) {
   const name = String(stay.guest_name || '').trim().toLowerCase();
   const phone = String(stay.guest_phone || '').trim();
   const total = Number(stay.total_amount) || 0;
-  return total <= 0 || !phone || name === 'airbnb guest' || name === 'booking.com guest' || name === '';
+  return (
+    total <= 0 ||
+    !phone ||
+    name === 'airbnb guest' ||
+    name === 'booking.com guest' ||
+    name === 'outside channel guest' ||
+    name === ''
+  );
 }
 
 function stayToHide(a, b) {
@@ -164,22 +177,19 @@ function otaBlockReservations(unit, dateStrs, blockMap, stays) {
       continue;
     }
     const start = day;
-    let sawAirbnb = platform === 'airbnb';
     i += 1;
     while (i < dateStrs.length && !covered.has(dateStrs[i])) {
       const next = otaPlatformFromSource(blocks[dateStrs[i]]);
       if (next !== 'airbnb' && next !== 'booking') break;
-      if (next === 'airbnb') sawAirbnb = true;
       i += 1;
     }
     const end = addDays(dateStrs[i - 1], 1);
-    const label = sawAirbnb ? 'Airbnb' : 'Booking.com';
     out.push({
       id: `ota-block-${unit.id}-${start}`,
       unit_id: unit.id,
       unit_number: unit.unit_number,
-      guest_name: `${label} guest`,
-      booking_source: label,
+      guest_name: 'Outside Channel guest',
+      booking_source: 'Outside Channel',
       check_in: start,
       check_out: end,
       ci: start,
@@ -794,9 +804,6 @@ function EditReservationModal({ open, onClose, editId, editForm, setEditForm, un
               placeholder="Select…"
               options={[{ value: '', label: 'Select…' }, ...BOOKING_SOURCES.map(s => ({ value: s, label: s }))]}
             />
-            {editForm.booking_source === 'Airbnb' ? (
-              <p className="mt-1 text-xs text-ch-pine">Marked as already paid.</p>
-            ) : null}
           </div>
           <div><label className="label">Check-in *</label><input type="date" className="input" value={editForm.check_in} onChange={e => setEditForm(f => ({ ...f, check_in: e.target.value }))} /></div>
           <div><label className="label">Check-out *</label><input type="date" className="input" value={editForm.check_out} onChange={e => setEditForm(f => ({ ...f, check_out: e.target.value }))} /></div>

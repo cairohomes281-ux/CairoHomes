@@ -8,20 +8,22 @@ import { formatDate } from '../utils/formatters';
 import { reservationCurrencyError, toEgpPayload } from '../utils/reservationCurrency';
 import { isoDateOnly } from '../../utils/stayNights';
 
-const PLACEHOLDER_NAMES = new Set(['airbnb guest', 'booking.com guest']);
+const PLACEHOLDER_NAMES = new Set(['airbnb guest', 'booking.com guest', 'outside channel guest']);
 
 export function otaDetailsNeeded(reservation) {
   const flag = reservation?.ota_details_needed;
   return flag === true || flag === 1 || flag === 't' || flag === 'true';
 }
 
-function nightsOf(reservation) {
-  const stored = Number(reservation?.nights);
-  if (stored > 0) return stored;
-  const start = isoDateOnly(reservation?.check_in);
-  const end = isoDateOnly(reservation?.check_out);
-  const [y1, m1, d1] = String(start).split('-').map(Number);
-  const [y2, m2, d2] = String(end).split('-').map(Number);
+function addDays(iso, n) {
+  const [y, m, d] = String(isoDateOnly(iso)).split('-').map(Number);
+  const dt = new Date(y, m - 1, d + n);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function nightsBetween(start, end) {
+  const [y1, m1, d1] = String(isoDateOnly(start)).split('-').map(Number);
+  const [y2, m2, d2] = String(isoDateOnly(end)).split('-').map(Number);
   if (![y1, m1, d1, y2, m2, d2].every(Number.isFinite)) return 1;
   return Math.max(1, Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000));
 }
@@ -36,35 +38,25 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
   const [phone, setPhone] = useState('');
   const [price, setPrice] = useState('');
   const [total, setTotal] = useState('');
-  const [currencyForm, setCurrencyForm] = useState({ currency: 'EGP', exchange_rate: '' });
-  const nights = nightsOf(reservation);
+  const [checkIn, setCheckIn] = useState('');
+  const [checkOut, setCheckOut] = useState('');
+  const [currencyForm, setCurrencyForm] = useState({ currency: '', exchange_rate: '' });
+  const spanIn = isoDateOnly(reservation?.check_in);
+  const spanOut = isoDateOnly(reservation?.check_out);
+  const nights = checkIn && checkOut && checkIn < checkOut ? nightsBetween(checkIn, checkOut) : 1;
+  const currencyChosen = currencyForm.currency === 'USD' || currencyForm.currency === 'EGP';
   const currencyCode = currencyForm.currency === 'USD' ? 'USD' : 'EGP';
-  const airbnb = String(reservation?.booking_source || '').trim().toLowerCase() === 'airbnb';
 
   useEffect(() => {
     if (!open || !reservation) return;
     const currentName = String(reservation.guest_name || '').trim();
     setName(PLACEHOLDER_NAMES.has(currentName.toLowerCase()) ? '' : currentName);
     setPhone(String(reservation.guest_phone || '').trim());
-    const nightly = Number(reservation.price_per_night);
-    const stayTotal = Number(reservation.total_amount);
-    if (nightly > 0) {
-      setPrice(String(nightly));
-      setTotal(String(stayTotal > 0 ? stayTotal : money(nightly * nightsOf(reservation))));
-    } else if (stayTotal > 0) {
-      setTotal(String(stayTotal));
-      setPrice(String(money(stayTotal / nightsOf(reservation))));
-    } else {
-      setPrice('');
-      setTotal('');
-    }
-    setCurrencyForm({
-      currency: reservation.currency === 'USD' ? 'USD' : 'EGP',
-      exchange_rate:
-        reservation.currency === 'USD' && Number(reservation.exchange_rate) > 0
-          ? String(reservation.exchange_rate)
-          : '',
-    });
+    setCheckIn(isoDateOnly(reservation.check_in));
+    setCheckOut(isoDateOnly(reservation.check_out));
+    setPrice('');
+    setTotal('');
+    setCurrencyForm({ currency: '', exchange_rate: '' });
   }, [open, reservation]);
 
   const saveMutation = useMutation({
@@ -73,22 +65,42 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
         ? api.post('/reservations', {
             ...payload,
             unit_id: reservation.unit_id,
-            check_in: isoDateOnly(reservation.check_in),
-            check_out: isoDateOnly(reservation.check_out),
             adults: 1,
             status: 'confirmed',
             ota_block_stay: true,
+            ota_event_uid: reservation.ota_event_uid,
+            ota_span_check_in: spanIn,
+            ota_span_check_out: spanOut,
           })
         : api.put(`/reservations/${reservation.id}`, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reservations'] });
       qc.invalidateQueries({ queryKey: ['schedule'] });
       qc.invalidateQueries({ queryKey: ['reservation'] });
+      qc.invalidateQueries({ queryKey: ['calendar-blocks'] });
       toast.success('Guest details saved');
       onClose();
     },
     onError: (e) => toast.error(e.response?.data?.error || 'Could not save these details'),
   });
+
+  const retotal = (nightly, nextNights) => {
+    if (Number(nightly) > 0) setTotal(String(money(Number(nightly) * nextNights)));
+  };
+
+  const onCheckIn = (value) => {
+    let nextOut = checkOut;
+    if (value && checkOut && value >= checkOut) nextOut = addDays(value, 1);
+    if (nextOut && spanOut && nextOut > spanOut) nextOut = spanOut;
+    setCheckIn(value);
+    setCheckOut(nextOut);
+    if (value && nextOut && value < nextOut) retotal(price, nightsBetween(value, nextOut));
+  };
+
+  const onCheckOut = (value) => {
+    setCheckOut(value);
+    if (checkIn && value && checkIn < value) retotal(price, nightsBetween(checkIn, value));
+  };
 
   const onPrice = (value) => {
     setPrice(value);
@@ -103,13 +115,20 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
   };
 
   const submit = () => {
-    if (!reservation?.id) return;
+    if (!reservation?.id && !reservation?.synthetic_ota_block) return;
     const guestName = name.trim();
     const guestPhone = phone.trim();
+    if (!checkIn || !checkOut || !(checkIn < checkOut)) {
+      return toast.error('Confirm the check-in and check-out');
+    }
+    if (checkIn < spanIn || checkOut > spanOut) {
+      return toast.error('Keep the dates inside the blocked nights');
+    }
     if (!guestName || PLACEHOLDER_NAMES.has(guestName.toLowerCase())) {
       return toast.error('Enter the guest name');
     }
     if (!guestPhone) return toast.error('Enter the phone number');
+    if (!currencyChosen) return toast.error('Choose EGP or USD before entering the price');
     const nightly = Number(price);
     const stayTotal = Number(total);
     if (!(nightly > 0) && !(stayTotal > 0)) {
@@ -125,11 +144,13 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
     saveMutation.mutate({
       guest_name: guestName,
       guest_phone: guestPhone,
+      check_in: checkIn,
+      check_out: checkOut,
       price_per_night: priced.price_per_night,
       total_amount: priced.total_amount,
       currency: priced.currency,
       exchange_rate: priced.exchange_rate,
-      booking_source: reservation.booking_source,
+      booking_source: 'Outside Channel',
       fill_ota_details: true,
     });
   };
@@ -138,7 +159,7 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
     <Modal
       open={open && !!reservation}
       onClose={onClose}
-      title="Add guest details"
+      title="Outside Channel reservation"
       size="sm"
       footer={
         <>
@@ -160,12 +181,40 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
         <div className="space-y-4 text-sm">
           <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
             <p className="font-semibold text-amber-950">
-              {reservation.booking_source || 'Platform'} · {reservation.unit_number || reservation.unit_title || reservation.unit_name || 'Unit'}
+              Outside Channel · {reservation.unit_number || reservation.unit_title || reservation.unit_name || 'Unit'}
             </p>
             <p className="mt-0.5 text-xs text-amber-900">
-              {formatDate(reservation.check_in)} → {formatDate(reservation.check_out)} · {nights} night{nights === 1 ? '' : 's'}
+              Blocked {formatDate(spanIn)} → {formatDate(spanOut)}. Confirm which nights are this reservation.
+              Any nights you leave out stay on the schedule for the next one.
             </p>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Check-in</label>
+              <input
+                type="date"
+                className="input"
+                min={spanIn}
+                max={spanOut ? addDays(spanOut, -1) : undefined}
+                value={checkIn}
+                onChange={(e) => onCheckIn(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">Check-out</label>
+              <input
+                type="date"
+                className="input"
+                min={checkIn ? addDays(checkIn, 1) : spanIn}
+                max={spanOut || undefined}
+                value={checkOut}
+                onChange={(e) => onCheckOut(e.target.value)}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-ch-muted">
+            {nights} night{nights === 1 ? '' : 's'} · {formatDate(checkIn)} → {formatDate(checkOut)}
+          </p>
           <div>
             <label className="label">Guest name</label>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
@@ -174,34 +223,39 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
             <label className="label">Phone number</label>
             <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20…" />
           </div>
-          <ReservationCurrencyPicker form={currencyForm} setForm={setCurrencyForm} />
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Price / night ({currencyCode})</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className="input"
-                value={price}
-                onChange={(e) => onPrice(e.target.value)}
-                placeholder="0.00"
-              />
+          <ReservationCurrencyPicker form={currencyForm} setForm={setCurrencyForm} requireChoice />
+          {currencyChosen ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Price / night ({currencyCode})</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="input"
+                  value={price}
+                  onChange={(e) => onPrice(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <label className="label">Total ({currencyCode})</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="input"
+                  value={total}
+                  onChange={(e) => onTotal(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
             </div>
-            <div>
-              <label className="label">Total ({currencyCode})</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className="input"
-                value={total}
-                onChange={(e) => onTotal(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
-          </div>
-          {airbnb ? <p className="text-xs text-ch-muted">Airbnb stays are marked paid for this total.</p> : null}
+          ) : (
+            <p className="rounded-xl border border-dashed border-ch-line bg-ch-ivory px-3 py-2 text-xs text-ch-muted">
+              Choose EGP or USD before entering the price.
+            </p>
+          )}
         </div>
       ) : null}
     </Modal>

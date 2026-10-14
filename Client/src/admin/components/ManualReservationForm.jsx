@@ -457,9 +457,6 @@ export default function ManualReservationForm({
                   ...BOOKING_SOURCES.map((source) => ({ value: source, label: source })),
                 ]}
               />
-              {form.booking_source === 'Airbnb' ? (
-                <p className="mt-1 text-xs text-ch-pine">Marked as already paid.</p>
-              ) : null}
             </div>
             <div>
               <Label>Sales person{!form.is_owner_reservation ? ' *' : ''}</Label>

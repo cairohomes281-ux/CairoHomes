@@ -2,8 +2,10 @@ const { query } = require('../config/db');
 const { syncBlocksForReservation, resyncReservationBlocks } = require('../lib/reservationBlocks');
 const { notifyStaff } = require('./pmsNotifications');
 
-const PLATFORM_LABELS = { airbnb: 'Airbnb', booking: 'Booking.com' };
-const PLATFORM_ORDER = { airbnb: 0, booking: 1 };
+const OUTSIDE_LABEL = 'Outside Channel';
+const OUTSIDE_GUEST = 'Outside Channel guest';
+const PLATFORM_LABELS = { airbnb: OUTSIDE_LABEL };
+const PLACEHOLDER_NAMES = new Set(['airbnb guest', 'booking.com guest', 'outside channel guest']);
 const NON_RESERVATION_BLOCK_SOURCES = ['reservation', 'reservation_import', 'booking'];
 
 function localIso(d) {
@@ -49,9 +51,9 @@ function parseIcalEvents(ics) {
   });
 }
 
-/** Airbnb and Booking.com calendars only say a night is busy. Both become stays that still need a name, phone and price. */
+/** Airbnb's calendar is the only feed we import. Booking.com is already connected to Airbnb, so its nights arrive here too. */
 function isReservationEvent(platform, event) {
-  if (platform === 'airbnb' || platform === 'booking') return Boolean(event?.start && event?.end);
+  if (platform === 'airbnb') return Boolean(event?.start && event?.end);
   return false;
 }
 
@@ -67,9 +69,31 @@ function nightsBetween(checkIn, checkOut) {
   return Math.max(1, Math.round((new Date(checkOut) - new Date(checkIn)) / 86400000));
 }
 
+function isoDate(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const text = String(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
 function isOtaBookingSource(source) {
   const value = String(source || '').trim().toLowerCase();
-  return value === 'airbnb' || value === 'booking.com' || value === 'booking';
+  return (
+    value === 'outside channel' ||
+    value === 'airbnb' ||
+    value === 'booking.com' ||
+    value === 'booking' ||
+    value === 'bookingcom'
+  );
+}
+
+function isPlaceholderGuest(name) {
+  return PLACEHOLDER_NAMES.has(String(name || '').trim().toLowerCase());
 }
 
 function isUnfilledOtaStay(row) {
@@ -78,7 +102,50 @@ function isUnfilledOtaStay(row) {
   const name = String(row.guest_name || '').trim().toLowerCase();
   const phone = String(row.guest_phone || '').trim();
   const total = Number(row.total_amount) || 0;
-  return total <= 0 || !phone || name === 'airbnb guest' || name === 'booking.com guest' || name === '';
+  return total <= 0 || !phone || isPlaceholderGuest(name) || name === '';
+}
+
+/** Nights the staff did not assign to this stay, still inside the original block. */
+function leftoverRanges(spanStart, spanEnd, start, end) {
+  const ranges = [];
+  if (start > spanStart) ranges.push([spanStart, start]);
+  if (end < spanEnd) ranges.push([end, spanEnd]);
+  return ranges;
+}
+
+/**
+ * A blocked span can hide more than one stay (21–22 and 23–24 inside 21–25).
+ * The confirmed dates must sit inside that span. Leftover nights become another stay.
+ */
+function confirmStayDates(spanIn, spanOut, stayIn, stayOut) {
+  const spanStart = isoDate(spanIn);
+  const spanEnd = isoDate(spanOut);
+  const start = isoDate(stayIn) || spanStart;
+  const end = isoDate(stayOut) || spanEnd;
+  if (!spanStart || !spanEnd || !start || !end) return { error: 'Check-in and check-out are required' };
+  if (!(start < end)) return { error: 'Check-out must be after check-in' };
+  if (start < spanStart || end > spanEnd) {
+    return { error: 'Keep the dates inside the blocked nights. Leave the other nights for the next reservation.' };
+  }
+  return { spanStart, spanEnd, start, end, leftovers: leftoverRanges(spanStart, spanEnd, start, end) };
+}
+
+function splitEventUid(parentUid, checkIn, checkOut) {
+  return `split:${encodeURIComponent(String(parentUid))}:${checkIn}:${checkOut}`;
+}
+
+function splitParentUid(uid) {
+  const value = String(uid || '');
+  if (!value.startsWith('split:')) return null;
+  const parts = value.slice(6).split(':');
+  if (parts.length < 3) return null;
+  parts.pop();
+  parts.pop();
+  try {
+    return decodeURIComponent(parts.join(':'));
+  } catch {
+    return null;
+  }
 }
 
 function rangesOverlap(a, b) {
@@ -113,7 +180,7 @@ async function collapseOverlappingOtaStays() {
      WHERE status <> 'cancelled'
        AND ota_event_uid IS NOT NULL
        AND check_out >= CURRENT_DATE - 1
-       AND lower(trim(booking_source)) IN ('airbnb', 'booking.com', 'booking')`
+       AND lower(trim(booking_source)) IN ('outside channel', 'airbnb', 'booking.com', 'booking', 'bookingcom')`
   );
   const byUnit = new Map();
   for (const row of rows) {
@@ -230,7 +297,7 @@ async function importFeedReservations(feed, ics) {
 
   const { rows: imported } = await query(
     `SELECT id, unit_id, status, check_in::text AS check_in, check_out::text AS check_out,
-            ota_event_uid, ota_removed_at
+            ota_event_uid, ota_removed_at, COALESCE(ota_dates_locked, false) AS ota_dates_locked
      FROM reservations WHERE ota_feed_id = $1`,
     [feed.id]
   );
@@ -249,6 +316,7 @@ async function importFeedReservations(feed, ics) {
 
     if (existing) {
       seen.add(existing.id);
+      if (existing.ota_dates_locked) continue;
       const datesChanged = existing.check_in !== ev.start || existing.check_out !== ev.end;
       const reinstate = existing.status === 'cancelled' && existing.ota_removed_at;
       if (existing.status === 'cancelled' && !reinstate) continue;
@@ -292,18 +360,18 @@ async function importFeedReservations(feed, ics) {
        RETURNING *`,
       [
         feed.unit_id,
-        `${label} guest`,
+        OUTSIDE_GUEST,
         ev.start,
         ev.end,
         nightsBetween(ev.start, ev.end),
-        label,
+        OUTSIDE_LABEL,
         placeholderNotes(label, details),
         createdBy,
         feed.id,
         ev.uid,
         details.code,
         details.last4,
-        label === 'Airbnb' ? 'paid' : 'pending',
+        'pending',
       ]
     );
     if (!rows[0]) continue;
@@ -320,6 +388,8 @@ async function importFeedReservations(feed, ics) {
   const liveUids = new Set(events.map((e) => e.uid));
   for (const r of imported) {
     if (seen.has(r.id) || liveUids.has(r.ota_event_uid)) continue;
+    const parentUid = splitParentUid(r.ota_event_uid);
+    if (parentUid && liveUids.has(parentUid)) continue;
     if (!['confirmed', 'pending'].includes(r.status) || r.check_in < today) continue;
     const { rows } = await query(
       `UPDATE reservations
@@ -340,12 +410,76 @@ async function importFeedReservations(feed, ics) {
   return result;
 }
 
-/** Run imports for several feeds; Airbnb first so Booking.com echoes of Airbnb stays are recognised. */
+/**
+ * Lock the stay the staff just confirmed, and open a new Outside Channel stay
+ * for any nights in the original block that they left out.
+ */
+async function finalizeOutsideChannelSplit({
+  reservationId,
+  unitId,
+  spanIn,
+  spanOut,
+  stayIn,
+  stayOut,
+  feedId = null,
+  parentUid = null,
+  createdBy = null,
+}) {
+  const confirmed = confirmStayDates(spanIn, spanOut, stayIn, stayOut);
+  if (confirmed.error) {
+    const err = new Error(confirmed.error);
+    err.status = 400;
+    throw err;
+  }
+  if (reservationId) {
+    await query(
+      `UPDATE reservations
+       SET ota_dates_locked = true, booking_source = $2, updated_at = now()
+       WHERE id = $1`,
+      [reservationId, OUTSIDE_LABEL]
+    );
+  }
+  const parent = parentUid || `stay:${reservationId || unitId}`;
+  for (const [checkIn, checkOut] of confirmed.leftovers) {
+    const uid = splitEventUid(parent, checkIn, checkOut);
+    const { rows: already } = await query(
+      `SELECT id FROM reservations
+       WHERE unit_id = $1 AND status <> 'cancelled'
+         AND ($5::int IS NULL OR id <> $5)
+         AND (ota_event_uid = $2 OR (check_in < $4::date AND check_out > $3::date))
+       LIMIT 1`,
+      [unitId, uid, checkIn, checkOut, reservationId || null]
+    );
+    if (already[0] || !createdBy) continue;
+    const { rows } = await query(
+      `INSERT INTO reservations (
+         unit_id, guest_name, check_in, check_out, nights, total_amount, amount_paid,
+         payment_status, booking_source, status, notes, adults, created_by,
+         ota_feed_id, ota_event_uid
+       ) VALUES ($1,$2,$3::date,$4::date,$5,0,0,'pending',$6,'confirmed',$7,1,$8,$9,$10)
+       RETURNING *`,
+      [
+        unitId,
+        OUTSIDE_GUEST,
+        checkIn,
+        checkOut,
+        nightsBetween(checkIn, checkOut),
+        OUTSIDE_LABEL,
+        'Nights left from an Outside Channel block. Add the guest name, phone and price.',
+        createdBy,
+        feedId,
+        uid,
+      ]
+    );
+    if (rows[0]) await syncBlocksForReservation(rows[0]);
+  }
+  return confirmed;
+}
+
+/** Import Airbnb calendars. Booking.com nights are already on that calendar. */
 async function importReservationsForFeeds(items) {
   const totals = { created: 0, updated: 0, cancelled: 0, skipped: 0 };
-  const ordered = [...items].sort(
-    (a, b) => (PLATFORM_ORDER[a.feed.platform] ?? 9) - (PLATFORM_ORDER[b.feed.platform] ?? 9)
-  );
+  const ordered = items.filter((item) => item?.feed?.platform === 'airbnb');
   for (const { feed, ics } of ordered) {
     try {
       const r = await importFeedReservations(feed, ics);
@@ -367,6 +501,12 @@ module.exports = {
   isReservationEvent,
   airbnbDetails,
   stayToCancel,
+  confirmStayDates,
+  splitParentUid,
+  finalizeOutsideChannelSplit,
   importFeedReservations,
   importReservationsForFeeds,
+  OUTSIDE_LABEL,
+  OUTSIDE_GUEST,
+  isPlaceholderGuest,
 };

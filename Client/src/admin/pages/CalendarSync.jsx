@@ -8,10 +8,7 @@ import EmptyState from '../components/ui/EmptyState';
 import SearchFilter from '../components/ui/SearchFilter';
 import Modal from '../components/ui/Modal';
 
-const PLATFORMS = [
-  { id: 'airbnb', label: 'Airbnb' },
-  { id: 'booking', label: 'Booking.com' },
-];
+const PLATFORMS = [{ id: 'airbnb', label: 'Airbnb' }];
 
 const STATUS_STYLES = {
   connected: 'bg-emerald-100 text-emerald-800',
@@ -75,7 +72,7 @@ function UnitDetailsModal({ unit, open, onClose, focusPlatform }) {
     try {
       await navigator.clipboard.writeText(unit.export_url);
       setCopied(true);
-      toast.success('Cairo Homes export calendar copied — paste into the channel’s import calendar');
+      toast.success('Cairo Homes export calendar copied — paste it into Airbnb’s import calendar');
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error('Could not copy link');
@@ -137,11 +134,11 @@ function UnitDetailsModal({ unit, open, onClose, focusPlatform }) {
         <div className="rounded-2xl border border-dashed border-ch-line bg-[#f7f9fc] p-4 space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-ch-pine">
             <Link2 className="w-4 h-4" />
-            Cairo Homes export calendar (PMS → Channel)
+            Cairo Homes export calendar (PMS → Airbnb)
           </div>
           <p className="text-xs text-ch-muted">
-            Paste this into the channel’s “import calendar” so their inventory blocks when Cairo Homes has a
-            booking or schedule hold. iCal does not push rates or restrictions.
+            Paste this into Airbnb’s import calendar. A block on Airbnb also blocks Booking.com, because those
+            two calendars are already connected. iCal does not push rates or restrictions.
           </p>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
@@ -162,10 +159,10 @@ function UnitDetailsModal({ unit, open, onClose, focusPlatform }) {
         </div>
 
         <div className="space-y-4">
-          <p className="text-sm font-semibold text-ch-pine">Import calendars (Channel → PMS)</p>
+          <p className="text-sm font-semibold text-ch-pine">Airbnb import calendar (Airbnb → PMS)</p>
           <p className="text-xs text-ch-muted -mt-2">
-            Map each external listing explicitly — names often differ. Connection type for these
-            channels is iCal (availability only).
+            Paste the Airbnb export link. Nights blocked on Airbnb or Booking.com come in as one Outside Channel
+            reservation.
           </p>
           {PLATFORMS.map((p) => {
             const feed = feedFor(unit, p.id);
@@ -254,7 +251,7 @@ export default function CalendarSync() {
         <div>
           <h1 className="page-title">Calendar Sync</h1>
           <p className="page-subtitle">
-            Airbnb and Booking.com calendars update automatically every minute.
+            The Airbnb calendar updates automatically every minute. Booking.com follows Airbnb.
           </p>
         </div>
       </div>
@@ -285,11 +282,11 @@ export default function CalendarSync() {
         <EmptyState
           icon={Link2}
           title="No units"
-          description="Add a unit to link its Airbnb and Booking.com calendars."
+          description="Add a unit to link its Airbnb calendar."
         />
       ) : (
         <div className="rounded-2xl border border-ch-line bg-white overflow-hidden">
-          <div className="grid grid-cols-[minmax(0,1.4fr)_repeat(2,minmax(0,1.1fr))] gap-2 px-4 py-2.5 border-b border-ch-line bg-[#f7f9fc] text-[11px] uppercase tracking-wider text-ch-muted font-semibold">
+          <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-2 px-4 py-2.5 border-b border-ch-line bg-[#f7f9fc] text-[11px] uppercase tracking-wider text-ch-muted font-semibold">
             <div>Unit</div>
             {PLATFORMS.map((p) => (
               <div key={p.id} className="text-center">
@@ -300,7 +297,7 @@ export default function CalendarSync() {
           <ul className="divide-y divide-ch-line">
             {filtered.map((unit) => (
               <li key={unit.id}>
-                <div className="grid grid-cols-[minmax(0,1.4fr)_repeat(2,minmax(0,1.1fr))] gap-2 items-center px-4 py-3 hover:bg-ch-pine-50/40">
+                <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-2 items-center px-4 py-3 hover:bg-ch-pine-50/40">
                   <button type="button" onClick={() => openUnit(unit)} className="text-left min-w-0">
                     <p className="font-medium text-ch-pine break-words">{unitCode(unit)}</p>
                     {unit.status && unit.status !== 'published' ? (

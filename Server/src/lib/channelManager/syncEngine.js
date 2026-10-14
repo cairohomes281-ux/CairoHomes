@@ -125,6 +125,9 @@ async function syncIcalFeed(feedId) {
   );
   const feed = rows[0];
   if (!feed) throw new Error('Feed not found');
+  if (String(feed.platform || '').toLowerCase() !== 'airbnb') {
+    return { ok: true, skipped: true, status: 'disconnected' };
+  }
 
   const providerKey = providerKeyForIcalPlatform(feed.platform);
   await setFeedSyncStatus(feed.id, 'syncing');
@@ -184,13 +187,10 @@ async function syncAllIcal({ unitId = null } = {}) {
   const { rows: feeds } = await query(
     `SELECT id FROM unit_ota_feeds
      WHERE enabled = true
+       AND lower(platform) = 'airbnb'
        AND ical_url IS NOT NULL AND ical_url <> ''
        ${filter}
-     ORDER BY CASE lower(platform)
-       WHEN 'airbnb' THEN 0
-       WHEN 'booking' THEN 1
-       ELSE 2
-     END, id`,
+     ORDER BY id`,
     params
   );
   const results = [];
