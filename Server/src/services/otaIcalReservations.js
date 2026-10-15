@@ -390,8 +390,9 @@ async function importFeedReservations(feed, ics) {
       `INSERT INTO reservations (
          unit_id, guest_name, check_in, check_out, nights, total_amount, amount_paid,
          payment_status, booking_source, status, notes, adults, created_by,
-         ota_feed_id, ota_event_uid, ota_reservation_code, ota_phone_last4
-       ) VALUES ($1,$2,$3::date,$4::date,$5,0,0,$13,$6,'confirmed',$7,1,$8,$9,$10,$11,$12)
+         ota_feed_id, ota_event_uid, ota_reservation_code, ota_phone_last4,
+         currency, exchange_rate
+       ) VALUES ($1,$2,$3::date,$4::date,$5,0,0,$13,$6,'confirmed',$7,1,$8,$9,$10,$11,$12,'USD',1)
        ON CONFLICT DO NOTHING
        RETURNING *`,
       [
@@ -498,8 +499,8 @@ async function finalizeOutsideChannelSplit({
       `INSERT INTO reservations (
          unit_id, guest_name, check_in, check_out, nights, total_amount, amount_paid,
          payment_status, booking_source, status, notes, adults, created_by,
-         ota_feed_id, ota_event_uid
-       ) VALUES ($1,$2,$3::date,$4::date,$5,0,0,'pending',$6,'confirmed',$7,1,$8,$9,$10)
+         ota_feed_id, ota_event_uid, currency, exchange_rate
+       ) VALUES ($1,$2,$3::date,$4::date,$5,0,0,'pending',$6,'confirmed',$7,1,$8,$9,$10,'USD',1)
        RETURNING *`,
       [
         unitId,

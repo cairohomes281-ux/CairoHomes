@@ -2118,6 +2118,11 @@ router.post(
     const forceSelf = !isAdmin(req.user);
     const salesPersonId = forceSelf ? req.user.id : b.sales_person_id || req.user.id;
     await assertAssignableSalesPerson(req.user, salesPersonId);
+    // Outside Channel stays are always USD with rate 1 (same number, no FX).
+    if (truthyFlag(b.ota_block_stay) || truthyFlag(b.fill_ota_details)) {
+      b.currency = 'USD';
+      b.exchange_rate = 1;
+    }
     const money = parseReservationCurrency(b) || { currency: 'EGP', exchange_rate: 1 };
     const checkIn = new Date(b.check_in);
     const checkOut = new Date(b.check_out);
@@ -2201,8 +2206,9 @@ router.post(
         b.check_out
       );
       if (confirmed.error) return res.status(400).json({ error: confirmed.error });
-      if (!b.currency) return res.status(400).json({ error: 'Choose EGP or USD before entering the price' });
       b.booking_source = 'Outside Channel';
+      b.currency = 'USD';
+      b.exchange_rate = 1;
       outsideSplit = {
         unitId: b.unit_id,
         spanIn: confirmed.spanStart,
@@ -2789,8 +2795,9 @@ router.post('/reservations/dismiss-block', requireRoles(
       await query(
         `INSERT INTO reservations (
            unit_id, guest_name, check_in, check_out, nights, total_amount, amount_paid,
-           payment_status, booking_source, status, notes, adults, created_by, ota_event_uid
-         ) VALUES ($1,$2,$3::date,$4::date,$5,0,0,'pending',$6,'cancelled',$7,1,$8,$9)`,
+           payment_status, booking_source, status, notes, adults, created_by, ota_event_uid,
+           currency, exchange_rate
+         ) VALUES ($1,$2,$3::date,$4::date,$5,0,0,'pending',$6,'cancelled',$7,1,$8,$9,'USD',1)`,
         [
           unitId,
           'Outside Channel guest',

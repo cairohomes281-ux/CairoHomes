@@ -3,10 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import Modal from './ui/Modal';
-import ReservationCurrencyPicker from './ReservationCurrencyPicker';
 import { formatDate } from '../utils/formatters';
-import { reservationCurrencyError, toEgpPayload } from '../utils/reservationCurrency';
+import { toEgpPayload } from '../utils/reservationCurrency';
 import { isoDateOnly } from '../../utils/stayNights';
+
+/** Outside Channel amounts are always USD with rate 1 (same number, no FX). */
+const OTA_CURRENCY = { currency: 'USD', exchange_rate: '1' };
 
 const PLACEHOLDER_NAMES = new Set(['airbnb guest', 'booking.com guest', 'outside channel guest']);
 
@@ -40,12 +42,9 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
   const [total, setTotal] = useState('');
   const [checkIn, setCheckIn] = useState('');
   const [checkOut, setCheckOut] = useState('');
-  const [currencyForm, setCurrencyForm] = useState({ currency: '', exchange_rate: '' });
   const spanIn = isoDateOnly(reservation?.check_in);
   const spanOut = isoDateOnly(reservation?.check_out);
   const nights = checkIn && checkOut && checkIn < checkOut ? nightsBetween(checkIn, checkOut) : 1;
-  const currencyChosen = currencyForm.currency === 'USD' || currencyForm.currency === 'EGP';
-  const currencyCode = currencyForm.currency === 'USD' ? 'USD' : 'EGP';
 
   useEffect(() => {
     if (!open || !reservation) return;
@@ -56,7 +55,6 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
     setCheckOut(isoDateOnly(reservation.check_out));
     setPrice('');
     setTotal('');
-    setCurrencyForm({ currency: '', exchange_rate: '' });
   }, [open, reservation]);
 
   const saveMutation = useMutation({
@@ -128,16 +126,13 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
       return toast.error('Enter the guest name');
     }
     if (!guestPhone) return toast.error('Enter the phone number');
-    if (!currencyChosen) return toast.error('Choose EGP or USD before entering the price');
     const nightly = Number(price);
     const stayTotal = Number(total);
     if (!(nightly > 0) && !(stayTotal > 0)) {
       return toast.error('Enter the total or the price per night');
     }
-    const currencyError = reservationCurrencyError(currencyForm);
-    if (currencyError) return toast.error(currencyError);
     const priced = toEgpPayload({
-      ...currencyForm,
+      ...OTA_CURRENCY,
       price_per_night: nightly > 0 ? money(nightly) : money(stayTotal / nights),
       total_amount: stayTotal > 0 ? money(stayTotal) : money(nightly * nights),
     });
@@ -223,39 +218,35 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
             <label className="label">Phone number</label>
             <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20…" />
           </div>
-          <ReservationCurrencyPicker form={currencyForm} setForm={setCurrencyForm} requireChoice />
-          {currencyChosen ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Price / night ({currencyCode})</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="input"
-                  value={price}
-                  onChange={(e) => onPrice(e.target.value)}
-                  placeholder="0.00"
-                />
-              </div>
-              <div>
-                <label className="label">Total ({currencyCode})</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="input"
-                  value={total}
-                  onChange={(e) => onTotal(e.target.value)}
-                  placeholder="0.00"
-                />
-              </div>
+          <p className="rounded-xl border border-ch-line bg-ch-ivory px-3 py-2 text-xs text-ch-muted">
+            Outside Channel prices are in <strong className="text-ch-ink">USD</strong> (same number, no conversion).
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Price / night (USD)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="input"
+                value={price}
+                onChange={(e) => onPrice(e.target.value)}
+                placeholder="0.00"
+              />
             </div>
-          ) : (
-            <p className="rounded-xl border border-dashed border-ch-line bg-ch-ivory px-3 py-2 text-xs text-ch-muted">
-              Choose EGP or USD before entering the price.
-            </p>
-          )}
+            <div>
+              <label className="label">Total (USD)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="input"
+                value={total}
+                onChange={(e) => onTotal(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+          </div>
         </div>
       ) : null}
     </Modal>

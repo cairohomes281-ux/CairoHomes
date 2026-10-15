@@ -1692,6 +1692,11 @@ router.put(
     }
     await assertAssignableSalesPerson(req.user, b.sales_person_id);
     const { parseReservationCurrency } = require('../../lib/reservationCurrency');
+    // Outside Channel fills are always USD with rate 1 (same number, no FX).
+    if (b.fill_ota_details) {
+      b.currency = 'USD';
+      b.exchange_rate = 1;
+    }
     const money = parseReservationCurrency(b);
     const checkIn = b.check_in || existing.check_in;
     const checkOut = b.check_out || existing.check_out;
@@ -1849,7 +1854,6 @@ router.put(
         return res.status(400).json({ error: 'Enter the guest name' });
       }
       if (!guestPhone) return res.status(400).json({ error: 'Enter the phone number' });
-      if (!b.currency) return res.status(400).json({ error: 'Choose EGP or USD before entering the price' });
       const confirmed = confirmStayDates(row.check_in, row.check_out, b.check_in, b.check_out);
       if (confirmed.error) return res.status(400).json({ error: confirmed.error });
       b.check_in = confirmed.start;
