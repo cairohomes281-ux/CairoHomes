@@ -5,7 +5,6 @@ const BOOKING_SOURCES = [
   'Manual',
   'Broker',
   'Campaign',
-  'Facebook Post',
 ];
 
 const CHANNEL_REPORT_BUCKETS = ['Outside Channel', 'Website', 'Manual'];
@@ -36,8 +35,9 @@ function normalizeBookingSource(value, { hasBookingId = false } = {}) {
   return raw;
 }
 
-function isAirbnbBookingSource(value, opts) {
-  return normalizeBookingSource(value, opts) === 'Airbnb';
+/** Legacy helper. Airbnb/Booking stays are Outside Channel and are not auto-paid. */
+function isAirbnbBookingSource() {
+  return false;
 }
 
 function channelReportBucket(bookingSource, { hasBookingId = false } = {}) {

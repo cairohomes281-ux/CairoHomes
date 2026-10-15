@@ -39,7 +39,6 @@ export const BOOKING_SOURCES = [
   'Manual',
   'Broker',
   'Campaign',
-  'Facebook Post',
 ];
 /** Reporting channels; mirrors channelReportBucket() on the server. */
 export const RESERVATION_CHANNELS = [

@@ -32,15 +32,6 @@ function occupancySql({ wpScoped }) {
     JOIN unit_ota_feeds f ON f.id = b.feed_id
     JOIN units u ON u.wp_post_id = b.wp_post_id
     WHERE b.date >= $1 AND b.date < $2 ${blockFilter}
-      AND NOT EXISTS (
-        SELECT 1 FROM reservations r
-        WHERE r.unit_id = u.id
-          AND r.status = 'cancelled'
-          AND r.ota_event_uid IS NOT NULL
-          AND r.ota_removed_at IS NULL
-          AND b.date >= r.check_in
-          AND b.date < r.check_out
-      )
     UNION ALL
     SELECT u.id AS unit_id, b.wp_post_id, b.date::text AS date, COALESCE(b.source,'manual') AS source
     FROM unit_blocked_dates b

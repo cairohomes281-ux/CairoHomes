@@ -15,6 +15,37 @@ function localIso(d) {
   return `${y}-${m}-${day}`;
 }
 
+/** Business "today" in Cairo — used so a cancel overnight is not skipped on UTC servers. */
+function todayIsoBusiness(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+/**
+ * Match a live iCal event to an imported stay.
+ * Only fall back to the same dates when the stay has no UID yet — never attach a
+ * different UID (e.g. Airbnb "Not available" after a cancel) to an existing stay,
+ * or the cancel loop will think the booking is still live.
+ */
+function matchImportedStay(imported, event, seenIds) {
+  if (!event?.uid) return null;
+  const byUid = imported.find((r) => r.ota_event_uid === event.uid && !seenIds.has(r.id));
+  if (byUid) return byUid;
+  return (
+    imported.find(
+      (r) =>
+        !seenIds.has(r.id) &&
+        !r.ota_event_uid &&
+        r.check_in === event.start &&
+        r.check_out === event.end
+    ) || null
+  );
+}
+
 function ymdFrom(raw) {
   const m = /([0-9]{4})([0-9]{2})([0-9]{2})/.exec(String(raw || ''));
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
@@ -51,18 +82,29 @@ function parseIcalEvents(ics) {
   });
 }
 
-/** Airbnb's calendar is the only feed we import. Booking.com is already connected to Airbnb, so its nights arrive here too. */
-function isReservationEvent(platform, event) {
-  if (platform === 'airbnb') return Boolean(event?.start && event?.end);
-  return false;
-}
-
 function airbnbDetails(description) {
   const text = String(description || '');
   const code =
     /reservations\/details\/([A-Z0-9]+)/i.exec(text)?.[1] || /\b(HM[A-Z0-9]{6,})\b/.exec(text)?.[1] || null;
   const last4 = /last\s*4\s*digits\)?\s*:\s*(\d{4})/i.exec(text)?.[1] || null;
   return { code: code ? code.toUpperCase() : null, last4 };
+}
+
+/**
+ * Only real Airbnb bookings become Outside Channel stays.
+ * Host "Not available" / closed blocks stay on unit_ical_blocks only so a cancel
+ * is not immediately re-attached to a new placeholder with a different UID.
+ */
+function isReservationEvent(platform, event) {
+  if (platform !== 'airbnb' || !event?.start || !event?.end) return false;
+  const summary = String(event.summary || '').trim().toLowerCase();
+  const description = String(event.description || '');
+  if (/not\s*available|unavailable|blocked|closed/.test(summary)) return false;
+  if (airbnbDetails(description).code) return true;
+  if (/reservations\/details\//i.test(description)) return true;
+  if (summary === 'reserved' || summary.startsWith('reserved ')) return true;
+  if (/airbnb\.com\/.*reservation/i.test(description)) return true;
+  return false;
 }
 
 function nightsBetween(checkIn, checkOut) {
@@ -288,7 +330,7 @@ async function importFeedReservations(feed, ics) {
   const result = { created: 0, updated: 0, cancelled: 0, skipped: 0 };
   if (!label || !feed.unit_id || !/END:VCALENDAR/i.test(String(ics || ''))) return result;
 
-  const today = localIso(new Date());
+  const today = todayIsoBusiness();
   const events = parseIcalEvents(ics).filter(
     (e) => e.uid && e.start && e.end && e.end > e.start && isReservationEvent(feed.platform, e)
   );
@@ -301,18 +343,12 @@ async function importFeedReservations(feed, ics) {
      FROM reservations WHERE ota_feed_id = $1`,
     [feed.id]
   );
-  const byUid = new Map(imported.map((r) => [r.ota_event_uid, r]));
   const seen = new Set();
   let createdBy = null;
 
   for (const ev of upcoming) {
     const details = feed.platform === 'airbnb' ? airbnbDetails(ev.description) : { code: null, last4: null };
-    let existing = byUid.get(ev.uid);
-    if (!existing) {
-      existing = imported.find(
-        (r) => !seen.has(r.id) && r.check_in === ev.start && r.check_out === ev.end
-      );
-    }
+    const existing = matchImportedStay(imported, ev, seen);
 
     if (existing) {
       seen.add(existing.id);
@@ -387,16 +423,23 @@ async function importFeedReservations(feed, ics) {
 
   const liveUids = new Set(events.map((e) => e.uid));
   for (const r of imported) {
-    if (seen.has(r.id) || liveUids.has(r.ota_event_uid)) continue;
+    if (seen.has(r.id)) continue;
+    // Only cancel stays we can prove left the calendar (they must have a UID).
+    if (!r.ota_event_uid) continue;
+    if (liveUids.has(r.ota_event_uid)) continue;
     const parentUid = splitParentUid(r.ota_event_uid);
     if (parentUid && liveUids.has(parentUid)) continue;
-    if (!['confirmed', 'pending'].includes(r.status) || r.check_in < today) continue;
+    // Still on the books (or mid-stay) and the calendar event is gone → OTA cancel.
+    if (String(r.status || '').toLowerCase() === 'cancelled') continue;
+    if (!(r.check_out > today)) continue;
     const { rows } = await query(
       `UPDATE reservations
        SET status = 'cancelled', ota_removed_at = now(), updated_at = now()
-       WHERE id = $1 RETURNING *`,
+       WHERE id = $1 AND status IS DISTINCT FROM 'cancelled'
+       RETURNING *`,
       [r.id]
     );
+    if (!rows[0]) continue;
     await syncBlocksForReservation(rows[0]);
     result.cancelled += 1;
     await notifyAdmins({
@@ -503,6 +546,7 @@ module.exports = {
   stayToCancel,
   confirmStayDates,
   splitParentUid,
+  matchImportedStay,
   finalizeOutsideChannelSplit,
   importFeedReservations,
   importReservationsForFeeds,

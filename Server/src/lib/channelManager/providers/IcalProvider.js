@@ -11,6 +11,15 @@ function localIso(d) {
   return `${y}-${m}-${day}`;
 }
 
+function todayIsoBusiness(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
 class IcalChannelProvider extends BaseChannelProvider {
   constructor() {
     super({
@@ -34,11 +43,10 @@ class IcalChannelProvider extends BaseChannelProvider {
    * Rates, full reservation payloads, and cancellations are not available over iCal.
    */
   async pullAvailability(connection, { monthsAhead = GUEST_AVAILABILITY_MONTHS } = {}) {
-    const today = new Date();
-    const from = localIso(new Date(today.getFullYear(), today.getMonth(), today.getDate()));
-    const to = localIso(
-      new Date(today.getFullYear(), today.getMonth() + monthsAhead, today.getDate())
-    );
+    const from = todayIsoBusiness();
+    const toDate = new Date(`${from}T00:00:00`);
+    toDate.setMonth(toDate.getMonth() + monthsAhead);
+    const to = localIso(toDate);
 
     if (connection?.feed_id || connection?.id) {
       const feedId = connection.feed_id || connection.id;

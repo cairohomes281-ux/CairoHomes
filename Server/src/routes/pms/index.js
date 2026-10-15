@@ -2804,13 +2804,7 @@ router.post('/reservations/dismiss-block', requireRoles(
         ]
       );
     }
-    await query(
-      `DELETE FROM unit_ical_blocks b
-       USING units u
-       WHERE u.id = $1 AND b.wp_post_id = u.wp_post_id
-         AND b.date >= $2::date AND b.date < $3::date`,
-      [unitId, checkIn, checkOut]
-    );
+    // Keep Airbnb unit_ical_blocks so the website stays closed while Airbnb is busy.
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -2860,15 +2854,7 @@ router.delete(
       } catch (err) {
         console.warn('[reservations] block release on delete failed', err.message);
       }
-      if (rows[0]) {
-        await query(
-          `DELETE FROM unit_ical_blocks b
-           USING units u
-           WHERE u.id = $1 AND b.wp_post_id = u.wp_post_id
-             AND b.date >= $2::date AND b.date < $3::date`,
-          [rows[0].unit_id, rows[0].check_in, rows[0].check_out]
-        );
-      }
+      // Do not wipe unit_ical_blocks — Airbnb may still hold the nights.
       await logAudit({
         userId: req.user.id,
         action: 'DELETE_RESERVATION',
@@ -2950,11 +2936,17 @@ router.post(
     await assertReservationOwned(req.user, existing);
 
     const { reason } = req.body || {};
+    // OTA stays: mark ota_removed_at so a still-live Airbnb event can reinstate.
+    // Staff "remove from schedule" (DELETE) leaves ota_removed_at NULL on purpose.
     const { rows } = await query(
       `UPDATE reservations SET
          status = 'cancelled',
          amount_paid = 0,
          payment_status = 'pending',
+         ota_removed_at = CASE
+           WHEN ota_event_uid IS NOT NULL THEN now()
+           ELSE ota_removed_at
+         END,
          notes = CASE
            WHEN $1::text IS NULL OR $1 = '' THEN notes
            ELSE COALESCE(notes || E'\n', '') || ('Cancel request: ' || $1)
@@ -3091,7 +3083,7 @@ router.get('/reservations/schedule', async (req, res, next) => {
     );
     const units = await enrichUnitsWithBeachPolicy(unitRows.map(mapUnitRow));
     const unitIds = units.map((u) => u.id);
-    if (unitIds.length === 0) return res.json({ units: [], reservations: [] });
+    if (unitIds.length === 0) return res.json({ units: [], reservations: [], ota_dismissals: [] });
 
     const scope = reservationScopeClause(req.user, 'r', 4);
     const { rows: reservations } = await query(
@@ -3122,6 +3114,22 @@ router.get('/reservations/schedule', async (req, res, next) => {
          AND r.status IS DISTINCT FROM 'cancelled'${scope.clause}
        ORDER BY r.check_in`,
       [to, from, unitIds, ...scope.params]
+    );
+
+    // Staff-dismissed OTA stays (cancelled, ota_removed_at NULL): keep Airbnb nights
+    // closed on the calendar, but do not rebuild "fill guest details" bars for them.
+    const { rows: otaDismissals } = await query(
+      `SELECT r.id, r.unit_id,
+              r.check_in::text AS check_in, r.check_out::text AS check_out,
+              r.ota_event_uid
+       FROM reservations r
+       WHERE r.unit_id = ANY($3::uuid[])
+         AND r.status = 'cancelled'
+         AND r.ota_event_uid IS NOT NULL
+         AND r.ota_removed_at IS NULL
+         AND r.check_in < $1::date
+         AND r.check_out > $2::date`,
+      [to, from, unitIds]
     );
 
     
@@ -3168,7 +3176,7 @@ router.get('/reservations/schedule', async (req, res, next) => {
       });
     }
 
-    res.json({ units, reservations });
+    res.json({ units, reservations, ota_dismissals: otaDismissals });
   } catch (e) {
     next(e);
   }

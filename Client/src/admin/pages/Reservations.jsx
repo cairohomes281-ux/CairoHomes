@@ -1012,7 +1012,7 @@ export default function Reservations() {
     user,
   } = usePermissions();
   const canGenerateReceipt = canAccessFinancialSystem;
-  const allowPastDates = canManageReservations;
+  const allowPastDates = true;
   const agentOnly =
     !isAdmin &&
     !isOwnersRelations &&
@@ -2035,7 +2035,7 @@ export default function Reservations() {
           onTransferProofChange={setTransferProof}
           lockSalesPerson={!isAdmin}
           currentUserName={user?.full_name || user?.username || ''}
-          allowPastDates={canWrite}
+          allowPastDates
           onCancel={() => { setModal(null); setTransferProof(null); }}
           onSubmit={handleSave}
           submitting={saveMutation.isPending}

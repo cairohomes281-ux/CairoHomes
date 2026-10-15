@@ -14,6 +14,15 @@ function localIso(d) {
   return `${y}-${m}-${day}`;
 }
 
+function todayIsoBusiness(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
 function addDaysIso(iso, n) {
   const d = new Date(`${iso}T00:00:00`);
   d.setDate(d.getDate() + n);
@@ -192,9 +201,9 @@ async function syncFeedBlocks(feed, { from, to }) {
 }
 
 async function refreshIcalBlocks({ monthsAhead = MONTHS_AHEAD, unitId = null } = {}) {
-  const today = new Date();
-  const from = localIso(new Date(today.getFullYear(), today.getMonth(), today.getDate()));
-  const toDate = new Date(today.getFullYear(), today.getMonth() + monthsAhead, today.getDate());
+  const from = todayIsoBusiness();
+  const toDate = new Date(`${from}T00:00:00`);
+  toDate.setMonth(toDate.getMonth() + monthsAhead);
   const to = localIso(toDate);
 
   const feeds = await getEnabledOtaFeeds({ unitId });

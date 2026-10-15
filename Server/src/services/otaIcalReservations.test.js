@@ -7,6 +7,7 @@ const {
   stayToCancel,
   confirmStayDates,
   splitParentUid,
+  matchImportedStay,
 } = require('./otaIcalReservations');
 
 const AIRBNB_ICS = `BEGIN:VCALENDAR
@@ -49,10 +50,10 @@ describe('parseIcalEvents', () => {
 });
 
 describe('isReservationEvent', () => {
-  it('imports Airbnb reserved stays and host blocks as stays missing guest details', () => {
+  it('imports Airbnb reserved stays only — host Not available stays as calendar blocks', () => {
     const [stay, block] = parseIcalEvents(AIRBNB_ICS);
     assert.equal(isReservationEvent('airbnb', stay), true);
-    assert.equal(isReservationEvent('airbnb', block), true);
+    assert.equal(isReservationEvent('airbnb', block), false);
   });
 
   it('does not import Booking.com events, because that calendar already follows Airbnb', () => {
@@ -130,5 +131,47 @@ describe('airbnbDetails', () => {
 
   it('returns nulls when the description is missing', () => {
     assert.deepEqual(airbnbDetails(''), { code: null, last4: null });
+  });
+});
+
+describe('matchImportedStay', () => {
+  const reserved = {
+    id: 1,
+    ota_event_uid: 'reserved@airbnb.com',
+    check_in: '2026-10-21',
+    check_out: '2026-10-24',
+  };
+  const orphan = {
+    id: 2,
+    ota_event_uid: null,
+    check_in: '2026-11-01',
+    check_out: '2026-11-03',
+  };
+
+  it('matches by event UID', () => {
+    const hit = matchImportedStay([reserved, orphan], {
+      uid: 'reserved@airbnb.com',
+      start: '2026-10-21',
+      end: '2026-10-24',
+    }, new Set());
+    assert.equal(hit?.id, 1);
+  });
+
+  it('does not reuse a cancelled booking UID for a new Not available block on the same nights', () => {
+    const hit = matchImportedStay([reserved], {
+      uid: 'blocked-after-cancel@airbnb.com',
+      start: '2026-10-21',
+      end: '2026-10-24',
+    }, new Set());
+    assert.equal(hit, null);
+  });
+
+  it('still matches a stay that never got a UID when the dates line up', () => {
+    const hit = matchImportedStay([orphan], {
+      uid: 'new@airbnb.com',
+      start: '2026-11-01',
+      end: '2026-11-03',
+    }, new Set());
+    assert.equal(hit?.id, 2);
   });
 });

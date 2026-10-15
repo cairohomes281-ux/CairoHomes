@@ -23,18 +23,14 @@ router.get('/:slug.ics', async (req, res, next) => {
       [unit.id]
     );
 
-    // Explicit schedule / owner holds — same nights guest calendars treat as closed.
+    // Explicit schedule / owner holds only. Do not re-export inbound Airbnb
+    // unit_ical_blocks — that echoes Airbnb's own calendar back into Airbnb.
     const { rows: blocked } = await query(
       `SELECT date::text AS date
        FROM unit_blocked_dates
        WHERE wp_post_id = $1
          AND date >= CURRENT_DATE - 1
          AND COALESCE(source, 'manual') NOT IN ('reservation', 'reservation_import', 'booking')
-       UNION
-       SELECT date::text AS date
-       FROM unit_ical_blocks
-       WHERE wp_post_id = $1
-         AND date >= CURRENT_DATE - 1
        ORDER BY date`,
       [unit.wp_post_id]
     );

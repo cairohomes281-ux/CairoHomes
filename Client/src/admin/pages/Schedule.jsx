@@ -15,7 +15,13 @@ import AdminReservationDrawer from '../components/AdminReservationDrawer';
 import ManualReservationForm, {
   EMPTY_MANUAL_RESERVATION_FORM,
 } from '../components/ManualReservationForm';
-import { reservationCurrencyError, reservationMoney, toEgpPayload } from '../utils/reservationCurrency';
+import ReservationCurrencyPicker from '../components/ReservationCurrencyPicker';
+import {
+  fromEgpFormValues,
+  reservationCurrencyError,
+  reservationMoney,
+  toEgpPayload,
+} from '../utils/reservationCurrency';
 import TransferReservationModal from '../components/TransferReservationModal';
 import ExtendStayModal, { isPlatformStay } from '../components/ExtendStayModal';
 import OtaDetailsModal, { otaDetailsNeeded } from '../components/OtaDetailsModal';
@@ -158,12 +164,22 @@ function withoutOverlappingOtaEchoes(stays) {
   return hidden.size ? stays.filter((stay) => !hidden.has(stay.id)) : stays;
 }
 
-function otaBlockReservations(unit, dateStrs, blockMap, stays) {
+function otaBlockReservations(unit, dateStrs, blockMap, stays, dismissals = []) {
   const covered = new Set();
   for (const stay of stays) {
     if (stay.status === 'cancelled') continue;
     for (const day of dateStrs) {
       if (stay.ci <= day && stay.co > day) covered.add(day);
+    }
+  }
+  // Staff removed the Outside Channel stay from the schedule — keep Airbnb nights
+  // closed (ical hatch) but do not rebuild a "fill guest details" bar.
+  for (const d of dismissals) {
+    if (String(d.unit_id) !== String(unit.id)) continue;
+    const ci = normDate(d.check_in);
+    const co = normDate(d.check_out);
+    for (const day of dateStrs) {
+      if (ci <= day && co > day) covered.add(day);
     }
   }
   const blocks = blockMap[unit.id] || {};
@@ -767,7 +783,46 @@ function ReservationDetailModal({
 }
 
 
+function editStayNights(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return 0;
+  const n = Math.round((new Date(`${checkOut}T00:00:00`) - new Date(`${checkIn}T00:00:00`)) / 86400000);
+  return n > 0 ? n : 0;
+}
+
 function EditReservationModal({ open, onClose, editId, editForm, setEditForm, unitsList, usersList, onSave, saving }) {
+  const cur = editForm.currency === 'USD' ? 'USD' : 'EGP';
+  const nights = editStayNights(editForm.check_in, editForm.check_out);
+
+  const setPricePerNight = (value) => {
+    setEditForm((f) => {
+      const nextNights = editStayNights(f.check_in, f.check_out);
+      const nightly = parseFloat(value);
+      return {
+        ...f,
+        price_per_night: value,
+        total_amount:
+          nextNights > 0 && Number.isFinite(nightly)
+            ? String(Math.round(nightly * nextNights * 100) / 100)
+            : f.total_amount,
+      };
+    });
+  };
+
+  const setTotalAmount = (value) => {
+    setEditForm((f) => {
+      const nextNights = editStayNights(f.check_in, f.check_out);
+      const total = parseFloat(value);
+      return {
+        ...f,
+        total_amount: value,
+        price_per_night:
+          nextNights > 0 && Number.isFinite(total)
+            ? String(Math.round((total / nextNights) * 100) / 100)
+            : f.price_per_night,
+      };
+    });
+  };
+
   return (
     <Modal open={open} onClose={onClose} title={`Edit Reservation #${editId}`} size="lg"
       footer={<>
@@ -807,7 +862,6 @@ function EditReservationModal({ open, onClose, editId, editForm, setEditForm, un
           </div>
           <div><label className="label">Check-in *</label><input type="date" className="input" value={editForm.check_in} onChange={e => setEditForm(f => ({ ...f, check_in: e.target.value }))} /></div>
           <div><label className="label">Check-out *</label><input type="date" className="input" value={editForm.check_out} onChange={e => setEditForm(f => ({ ...f, check_out: e.target.value }))} /></div>
-          <div><label className="label">Total (EGP)</label><input type="number" min="0" step="0.01" className="input" value={editForm.total_amount} onChange={e => setEditForm(f => ({ ...f, total_amount: e.target.value }))} /></div>
           <div>
             <label className="label">Status</label>
             <SearchableSelect value={editForm.status} onChange={v => setEditForm(f => ({ ...f, status: v }))}
@@ -816,6 +870,42 @@ function EditReservationModal({ open, onClose, editId, editForm, setEditForm, un
             />
           </div>
         </div>
+
+        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-3">
+          <h4 className="text-sm font-semibold text-blue-900">Money</h4>
+          <ReservationCurrencyPicker form={editForm} setForm={setEditForm} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <label className="label">Nights</label>
+              <div className="input bg-white font-semibold">{nights || '—'}</div>
+            </div>
+            <div>
+              <label className="label">Price / night ({cur})</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="input"
+                value={editForm.price_per_night}
+                onChange={(e) => setPricePerNight(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <label className="label">Total ({cur})</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="input"
+                value={editForm.total_amount}
+                onChange={(e) => setTotalAmount(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="flex items-center gap-2">
           <input type="checkbox" id="owner_sched" checked={!!editForm.is_owner_reservation} onChange={e => setEditForm(f => ({ ...f, is_owner_reservation: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 text-primary-600" />
           <label htmlFor="owner_sched" className="text-sm text-gray-700 font-medium">Owner Reservation</label>
@@ -993,6 +1083,8 @@ const EMPTY_EDIT = {
   check_in: '', check_out: '', total_amount: '', price_per_night: '',
   booking_source: '', sales_person_id: '', is_owner_reservation: false, is_hold: false,
   status: 'confirmed', notes: '',
+  currency: 'EGP',
+  exchange_rate: '',
 };
 
 function BulkPriceModal({ open, onClose, unitCount, onSave, saving }) {
@@ -1070,7 +1162,9 @@ export default function Schedule() {
   const { user } = useAuth();
   const { canEditSchedulePricing, canManageReservations, canReserveLongTermUnits, canWriteSchedule, isManualReservations, isWebsiteReservations, isReservationsManager, isAdmin } = usePermissions();
   const TODAY = todayStr();
-  const EARLIEST = addDays(TODAY, -1);
+  // Room rack still opens on yesterday; managers/admins can navigate up to a year back.
+  const RACK_START = addDays(TODAY, -1);
+  const EARLIEST = isReservationsManager || isAdmin ? addMonths(TODAY, -12) : RACK_START;
   const TOMORROW = addDays(TODAY, 1);
   const [anchor, setAnchor] = useState(TODAY);
   const [spanMonths, setSpanMonths] = useState(3);
@@ -1145,7 +1239,8 @@ export default function Schedule() {
   const [holdDetailId,      setHoldDetailId]      = useState(null);
 
   
-  const defaultFrom = anchor <= TODAY ? EARLIEST : anchor;
+  const defaultFrom =
+    anchor < RACK_START ? anchor : anchor <= TODAY ? RACK_START : anchor;
   const defaultTo   = addMonths(defaultFrom, spanMonths);
 
   
@@ -1180,7 +1275,7 @@ export default function Schedule() {
     }
     return { fromStr: defaultFrom, toStr: defaultTo };
     }
-  }, [filterFrom, filterTo, defaultFrom, defaultTo, spanMonths, EARLIEST]);
+  }, [filterFrom, filterTo, defaultFrom, defaultTo, spanMonths, EARLIEST, RACK_START]);
 
   const displayDates = useMemo(() => {
     const days = [];
@@ -1344,7 +1439,7 @@ export default function Schedule() {
   });
 
   const editMutation = useMutation({
-    mutationFn: () => api.put(`/reservations/${editId}`, editForm),
+    mutationFn: () => api.put(`/reservations/${editId}`, toEgpPayload(editForm)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['schedule'] });
       qc.invalidateQueries({ queryKey: ['reservation-detail', editId] });
@@ -1537,7 +1632,6 @@ export default function Schedule() {
         handlePriceClick(unit, start, end);
         return;
       }
-      if (start < TODAY && !canManageReservations) return toast.error('Past dates can’t be booked');
       if (blockSrc) {
         if (canEditSchedulePricing) {
           handlePriceClick(unit, start, end);
@@ -1555,7 +1649,7 @@ export default function Schedule() {
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [priceMode, canEditSchedulePricing, canReserveLongTermUnits, canManageReservations, blockMap, handlePriceClick, TODAY, user?.id]
+    [priceMode, canEditSchedulePricing, canReserveLongTermUnits, blockMap, handlePriceClick, TODAY, user?.id]
   );
 
   const clearDragPaint = useCallback(() => {
@@ -1706,7 +1800,7 @@ export default function Schedule() {
   const startCellGesture = useCallback(
     (unit, dateStr, event) => {
       if (event.button !== 0) return;
-      const minDate = canManageReservations && !priceMode ? '0000-00-00' : TODAY;
+      const minDate = priceMode ? TODAY : EARLIEST;
       const base = {
         unitId: unit.id,
         unit,
@@ -1731,7 +1825,7 @@ export default function Schedule() {
         /* ignore */
       }
     },
-    [TODAY, canManageReservations, priceMode]
+    [TODAY, EARLIEST, priceMode]
   );
 
   const handleResClick = useCallback((res) => {
@@ -1753,7 +1847,7 @@ export default function Schedule() {
   const openEditFromDetail = useCallback(async (res) => {
     try {
       const isHold = !!(res.is_hold || res.status === 'hold');
-      setEditForm({
+      setEditForm(fromEgpFormValues({
         unit_id: res.unit_id, guest_name: isHold && res.guest_name === 'Hold' ? '' : (res.guest_name || ''),
         guest_email: res.guest_email || '',
         guest_phone: res.guest_phone || '', guest_nationality: res.guest_nationality || '',
@@ -1761,15 +1855,14 @@ export default function Schedule() {
         children: res.children != null ? String(res.children) : '0',
         nanny_count: res.nanny_count != null ? String(res.nanny_count) : '0',
         check_in: normDate(res.check_in), check_out: normDate(res.check_out),
-        total_amount: isHold ? '' : res.total_amount,
+        total_amount: isHold ? '' : (res.total_amount ?? ''),
         price_per_night: res.price_per_night || '',
         booking_source: res.booking_source || '', sales_person_id: res.sales_person_id || '',
         is_owner_reservation: !!res.is_owner_reservation,
-        
         is_hold: isHold ? false : undefined,
         status: isHold ? 'confirmed' : res.status,
         notes: res.notes || '',
-      });
+      }, res));
       setEditId(res.id);
       setHoldDetailModal(false); 
       setEditModal(true);
@@ -1847,6 +1940,7 @@ export default function Schedule() {
 
   
   const allReservations = data?.reservations || [];
+  const otaDismissals = data?.ota_dismissals || [];
   const filteredUnits = useMemo(() => {
     const priceMin = filterPriceMin !== '' ? parseFloat(filterPriceMin) : null;
     const priceMax = filterPriceMax !== '' ? parseFloat(filterPriceMax) : null;
@@ -2070,7 +2164,7 @@ export default function Schedule() {
     if (d === TODAY) cls += ' sch-cell--today';
     const actionable = priceMode
       ? canEditPrice && !isPast
-      : (!isPast || canManageReservations) && !blockSrc && (!isLongTermUnit || canReserveLongTermUnits);
+      : !blockSrc && (!isLongTermUnit || canReserveLongTermUnits);
     if (actionable) cls += ' sch-cell--open';
     const blockName = otaLook
       ? otaLook.label
@@ -2118,7 +2212,10 @@ export default function Schedule() {
 
   const renderUnitRow = (unit) => {
     const stays = withoutOverlappingOtaEchoes(resByUnit[unit.id] || []);
-    const segs = buildSegments([...stays, ...otaBlockReservations(unit, dateStrs, blockMap, stays)], dateStrs);
+    const segs = buildSegments(
+      [...stays, ...otaBlockReservations(unit, dateStrs, blockMap, stays, otaDismissals)],
+      dateStrs
+    );
     const code = unitDisplay(unit);
     const name = unit.name || unit.title || '';
     const unitHit = unitMatches(unit);
@@ -2794,7 +2891,11 @@ export default function Schedule() {
         unitsList={bookableUnitsList}
         usersList={salesUsers}
         saving={editMutation.isPending}
-        onSave={() => editMutation.mutate()}
+        onSave={() => {
+          const currencyError = reservationCurrencyError(editForm);
+          if (currencyError) return toast.error(currencyError);
+          editMutation.mutate();
+        }}
       />
 
       <HoldModal
@@ -2838,7 +2939,7 @@ export default function Schedule() {
           onTransferProofChange={setCreateProof}
           lockSalesPerson={!isAdmin}
           currentUserName={user?.full_name || user?.username || ''}
-          allowPastDates={canManageReservations}
+          allowPastDates
           onCancel={() => { setCreateDrawer(false); setCreateProof(null); }}
           onSubmit={handleCreateReservation}
           submitting={createReservationMutation.isPending}
