@@ -1472,6 +1472,7 @@ router.post('/units', requireRoles(...UNIT_EDITOR_ROLES), async (req, res, next)
       try {
         const { seedUnitFallbackHorizon } = require('../../lib/seedFallbackPrices');
         const seeded = await seedUnitFallbackHorizon(rows[0], {
+          from: '2025-01-01',
           toExclusive: '2027-11-01',
           source: 'unit-create-fallback',
         });
