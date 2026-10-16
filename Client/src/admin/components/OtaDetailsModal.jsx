@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import Modal from './ui/Modal';
-import { formatDate } from '../utils/formatters';
+import { formatDate, OUTSIDE_CHANNEL_FLAGS } from '../utils/formatters';
 import { toEgpPayload } from '../utils/reservationCurrency';
 import { isoDateOnly } from '../../utils/stayNights';
 
@@ -34,6 +34,13 @@ function money(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
+function channelFromReservation(reservation) {
+  const lower = String(reservation?.booking_source || '').trim().toLowerCase();
+  if (lower === 'airbnb') return 'Airbnb';
+  if (lower === 'booking' || lower === 'booking.com' || lower === 'bookingcom') return 'Booking.com';
+  return '';
+}
+
 export default function OtaDetailsModal({ open, onClose, reservation, onDelete }) {
   const qc = useQueryClient();
   const [name, setName] = useState('');
@@ -42,6 +49,7 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
   const [total, setTotal] = useState('');
   const [checkIn, setCheckIn] = useState('');
   const [checkOut, setCheckOut] = useState('');
+  const [channel, setChannel] = useState('');
   const spanIn = isoDateOnly(reservation?.check_in);
   const spanOut = isoDateOnly(reservation?.check_out);
   const nights = checkIn && checkOut && checkIn < checkOut ? nightsBetween(checkIn, checkOut) : 1;
@@ -55,6 +63,7 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
     setCheckOut(isoDateOnly(reservation.check_out));
     setPrice('');
     setTotal('');
+    setChannel(channelFromReservation(reservation));
   }, [open, reservation]);
 
   const saveMutation = useMutation({
@@ -126,6 +135,9 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
       return toast.error('Enter the guest name');
     }
     if (!guestPhone) return toast.error('Enter the phone number');
+    if (!OUTSIDE_CHANNEL_FLAGS.includes(channel)) {
+      return toast.error('Choose Airbnb or Booking.com as the channel');
+    }
     const nightly = Number(price);
     const stayTotal = Number(total);
     if (!(nightly > 0) && !(stayTotal > 0)) {
@@ -145,7 +157,7 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
       total_amount: priced.total_amount,
       currency: priced.currency,
       exchange_rate: priced.exchange_rate,
-      booking_source: 'Outside Channel',
+      booking_source: channel,
       fill_ota_details: true,
     });
   };
@@ -211,19 +223,44 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
             {nights} night{nights === 1 ? '' : 's'} · {formatDate(checkIn)} → {formatDate(checkOut)}
           </p>
           <div>
-            <label className="label">Guest name</label>
+            <label className="label">Guest name *</label>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
           </div>
           <div>
-            <label className="label">Phone number</label>
+            <label className="label">Phone number *</label>
             <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20…" />
+          </div>
+          <div>
+            <label className="label">Channel *</label>
+            <div className="grid grid-cols-2 gap-2">
+              {OUTSIDE_CHANNEL_FLAGS.map((code) => {
+                const active = channel === code;
+                return (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() => setChannel(code)}
+                    className={`rounded-[10px] border px-3 py-2 text-sm font-semibold transition ${
+                      active
+                        ? 'border-[#1e5fbf] bg-[#eef4ff] text-[#1e5fbf]'
+                        : 'border-[#e6ebf2] bg-white text-[#5b6b80] hover:bg-[#f6f8fb]'
+                    }`}
+                  >
+                    {code}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[11px] text-ch-muted">
+              Counted as Outside Channel, flagged as {channel || 'Airbnb or Booking.com'}.
+            </p>
           </div>
           <p className="rounded-xl border border-ch-line bg-ch-ivory px-3 py-2 text-xs text-ch-muted">
             Outside Channel prices are in <strong className="text-ch-ink">USD</strong> (same number, no conversion).
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Price / night (USD)</label>
+              <label className="label">Price / night (USD) *</label>
               <input
                 type="number"
                 min="0"
@@ -235,7 +272,7 @@ export default function OtaDetailsModal({ open, onClose, reservation, onDelete }
               />
             </div>
             <div>
-              <label className="label">Total (USD)</label>
+              <label className="label">Total (USD) *</label>
               <input
                 type="number"
                 min="0"

@@ -1854,11 +1854,16 @@ router.put(
         return res.status(400).json({ error: 'Enter the guest name' });
       }
       if (!guestPhone) return res.status(400).json({ error: 'Enter the phone number' });
+      const { normalizeOutsideChannelFlag } = require('../../lib/bookingSources');
+      const channel = normalizeOutsideChannelFlag(b.booking_source);
+      if (!channel || channel === 'Outside Channel') {
+        return res.status(400).json({ error: 'Choose Airbnb or Booking.com as the channel' });
+      }
       const confirmed = confirmStayDates(row.check_in, row.check_out, b.check_in, b.check_out);
       if (confirmed.error) return res.status(400).json({ error: confirmed.error });
       b.check_in = confirmed.start;
       b.check_out = confirmed.end;
-      b.booking_source = 'Outside Channel';
+      b.booking_source = channel;
       if (!(Number(row.total_amount) > 0)) {
         b.payment_status = 'pending';
         b.amount_paid = 0;
@@ -1890,20 +1895,9 @@ router.put(
 
     const { rows } = await query(
       `UPDATE reservations SET
-         status = CASE
-           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb'
-            AND lower(COALESCE($1, status)) IN ('pending', 'hold')
-           THEN 'confirmed'
-           ELSE COALESCE($1, status)
-         END,
-         payment_status = CASE
-           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb' THEN 'paid'
-           ELSE COALESCE($2, payment_status)
-         END,
-         amount_paid = CASE
-           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb' THEN COALESCE($12, total_amount, 0)
-           ELSE COALESCE($3, amount_paid)
-         END,
+         status = COALESCE($1, status),
+         payment_status = COALESCE($2, payment_status),
+         amount_paid = COALESCE($3, amount_paid),
          notes = COALESCE($4, notes),
          guest_name = COALESCE($5, guest_name),
          guest_email = COALESCE($6, guest_email),

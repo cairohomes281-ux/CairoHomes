@@ -2028,6 +2028,7 @@ const OTA_DETAILS_NEEDED_SQL = `(
     COALESCE(r.total_amount, 0) <= 0
     OR NULLIF(btrim(COALESCE(r.guest_phone, '')), '') IS NULL
     OR r.guest_name IN ('Airbnb guest', 'Booking.com guest', 'Outside Channel guest')
+    OR lower(trim(COALESCE(r.booking_source, ''))) = 'outside channel'
   )
 )`;
 
@@ -2206,7 +2207,12 @@ router.post(
         b.check_out
       );
       if (confirmed.error) return res.status(400).json({ error: confirmed.error });
-      b.booking_source = 'Outside Channel';
+      const { normalizeOutsideChannelFlag } = require('../../lib/bookingSources');
+      const channel = normalizeOutsideChannelFlag(b.booking_source);
+      if (!channel || channel === 'Outside Channel') {
+        return res.status(400).json({ error: 'Choose Airbnb or Booking.com as the channel' });
+      }
+      b.booking_source = channel;
       b.currency = 'USD';
       b.exchange_rate = 1;
       outsideSplit = {
@@ -2288,11 +2294,6 @@ router.post(
     }
 
     const bookingSource = normalizeBookingSource(b.booking_source, { hasBookingId: Boolean(b.booking_id) });
-    if (bookingSource === 'Airbnb' && !isHold) {
-      amountPaid = totalAmount;
-      paymentStatus = 'paid';
-      if (!b.status || status === 'pending' || status === 'hold') status = 'confirmed';
-    }
 
     const proofPath = req.file?.path || req.file?.secure_url || b.transfer_proof_path || null;
     const proofName = req.file?.originalname || b.transfer_proof_name || null;
@@ -2491,20 +2492,9 @@ router.patch(
 
     const { rows } = await query(
       `UPDATE reservations SET
-         status = CASE
-           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb'
-            AND lower(COALESCE($1, status)) IN ('pending', 'hold')
-           THEN 'confirmed'
-           ELSE COALESCE($1, status)
-         END,
-         payment_status = CASE
-           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb' THEN 'paid'
-           ELSE COALESCE($2, payment_status)
-         END,
-         amount_paid = CASE
-           WHEN lower(trim(COALESCE($14, booking_source))) = 'airbnb' THEN COALESCE($12, total_amount, 0)
-           ELSE COALESCE($3, amount_paid)
-         END,
+         status = COALESCE($1, status),
+         payment_status = COALESCE($2, payment_status),
+         amount_paid = COALESCE($3, amount_paid),
          notes = COALESCE($4, notes),
          guest_name = COALESCE($5, guest_name),
          guest_email = COALESCE($6, guest_email),

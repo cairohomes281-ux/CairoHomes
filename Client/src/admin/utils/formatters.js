@@ -35,11 +35,17 @@ export const getStatusConfig = (status) =>
 
 export const BOOKING_SOURCES = [
   'Website',
+  'Airbnb',
+  'Booking.com',
   'Outside Channel',
   'Manual',
   'Broker',
   'Campaign',
 ];
+
+/** Channels required when filling an imported Outside Channel stay. */
+export const OUTSIDE_CHANNEL_FLAGS = ['Airbnb', 'Booking.com'];
+
 /** Reporting channels; mirrors channelReportBucket() on the server. */
 export const RESERVATION_CHANNELS = [
   { key: 'website', label: 'Website' },
@@ -60,7 +66,10 @@ export function reservationChannel(r) {
     lower === 'booking.com' ||
     lower === 'bookingcom'
   ) {
-    return { key: 'outside', label: 'Outside Channel', detail: null };
+    let detail = null;
+    if (lower === 'airbnb') detail = 'Airbnb';
+    else if (lower === 'booking' || lower === 'booking.com' || lower === 'bookingcom') detail = 'Booking.com';
+    return { key: 'outside', label: 'Outside Channel', detail };
   }
   return {
     key: 'manual',
