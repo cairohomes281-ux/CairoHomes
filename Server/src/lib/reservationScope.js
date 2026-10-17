@@ -204,8 +204,11 @@ function reservationScopeClause(user, alias = 'r', paramIndex = 1) {
 
   if (hasTeamReservationAccess(user) || isReservationsManager(user)) {
     return {
+      // Outside Channel / Airbnb imports have no sales_person — still show on Schedule
+      // so staff do not see ghost "fill details" bars over a hidden real stay.
       clause: ` AND (
-        ${alias}.sales_person_id = $${paramIndex}
+        ${alias}.ota_event_uid IS NOT NULL
+        OR ${alias}.sales_person_id = $${paramIndex}
         OR ${alias}.created_by = $${paramIndex}
         OR ${alias}.sales_person_id IN (SELECT id FROM staff_users WHERE manager_id = $${paramIndex})
         OR ${alias}.created_by IN (SELECT id FROM staff_users WHERE manager_id = $${paramIndex})
@@ -233,7 +236,8 @@ function reservationScopeClause(user, alias = 'r', paramIndex = 1) {
   let nextIndex = paramIndex + 1;
 
   let clause = ` AND (
-    ${alias}.sales_person_id = $${paramIndex}
+    ${alias}.ota_event_uid IS NOT NULL
+    OR ${alias}.sales_person_id = $${paramIndex}
     OR ${alias}.created_by = $${paramIndex}`;
 
   if (name) {

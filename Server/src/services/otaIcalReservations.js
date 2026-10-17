@@ -266,14 +266,14 @@ async function systemStaffId() {
 }
 
 async function hasConflict(feed, unitId, checkIn, checkOut) {
+  // Only active stays block new imports. Staff dismiss/DELETE tombstones
+  // (cancelled, ota_removed_at NULL) must not permanently block a rebook UID;
+  // same-UID dismiss is handled by matchImportedStay + reinstate rules.
   const { rows } = await query(
     `SELECT 1 FROM reservations
      WHERE unit_id = $1
        AND check_in < $3::date AND check_out > $2::date
-       AND (
-         status <> 'cancelled'
-         OR (ota_event_uid IS NOT NULL AND ota_removed_at IS NULL)
-       )
+       AND status IS DISTINCT FROM 'cancelled'
      LIMIT 1`,
     [unitId, checkIn, checkOut]
   );
@@ -340,8 +340,10 @@ async function importFeedReservations(feed, ics) {
   const { rows: imported } = await query(
     `SELECT id, unit_id, status, check_in::text AS check_in, check_out::text AS check_out,
             ota_event_uid, ota_removed_at, COALESCE(ota_dates_locked, false) AS ota_dates_locked
-     FROM reservations WHERE ota_feed_id = $1`,
-    [feed.id]
+     FROM reservations
+     WHERE ota_feed_id = $1
+        OR (unit_id = $2 AND ota_event_uid IS NOT NULL AND ota_feed_id IS NULL)`,
+    [feed.id, feed.unit_id]
   );
   const seen = new Set();
   let createdBy = null;
@@ -362,13 +364,24 @@ async function importFeedReservations(feed, ics) {
         `UPDATE reservations SET
            check_in = $2::date, check_out = $3::date, nights = $4,
            ota_event_uid = $5,
+           ota_feed_id = COALESCE(ota_feed_id, $9),
            ota_reservation_code = COALESCE($6, ota_reservation_code),
            ota_phone_last4 = COALESCE($7, ota_phone_last4),
            status = CASE WHEN $8 THEN 'confirmed' ELSE status END,
            ota_removed_at = CASE WHEN $8 THEN NULL ELSE ota_removed_at END,
            updated_at = now()
          WHERE id = $1 RETURNING *`,
-        [existing.id, ev.start, ev.end, nightsBetween(ev.start, ev.end), ev.uid, details.code, details.last4, Boolean(reinstate)]
+        [
+          existing.id,
+          ev.start,
+          ev.end,
+          nightsBetween(ev.start, ev.end),
+          ev.uid,
+          details.code,
+          details.last4,
+          Boolean(reinstate),
+          feed.id,
+        ]
       );
       await resyncReservationBlocks(datesChanged ? existing : null, rows[0]);
       result.updated += 1;
@@ -475,15 +488,19 @@ async function finalizeOutsideChannelSplit({
     err.status = 400;
     throw err;
   }
+  const parent = parentUid || `stay:${reservationId || unitId}`;
   if (reservationId) {
+    // Keep Airbnb / Booking.com channel flags; only lock dates + attach UID for cancel sync.
     await query(
       `UPDATE reservations
-       SET ota_dates_locked = true, booking_source = $2, updated_at = now()
+       SET ota_dates_locked = true,
+           ota_event_uid = COALESCE(NULLIF(ota_event_uid, ''), $2),
+           ota_feed_id = COALESCE(ota_feed_id, $3),
+           updated_at = now()
        WHERE id = $1`,
-      [reservationId, OUTSIDE_LABEL]
+      [reservationId, parent, feedId]
     );
   }
-  const parent = parentUid || `stay:${reservationId || unitId}`;
   for (const [checkIn, checkOut] of confirmed.leftovers) {
     const uid = splitEventUid(parent, checkIn, checkOut);
     const { rows: already } = await query(

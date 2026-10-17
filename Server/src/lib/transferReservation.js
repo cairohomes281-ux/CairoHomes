@@ -293,10 +293,10 @@ async function executeTransfer(reservationId, body, staffUser) {
          owner_collected_type, owner_collected_amount,
          payment_method, transfer_proof_path, transfer_proof_name,
          hold_expires_at, adults, children, nanny_count, sales_label,
-         beach_access_fees, id_photo_urls
+         beach_access_fees, id_photo_urls, currency, exchange_rate
        ) VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-         $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36
+         $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38
        )
        RETURNING *`,
       [
@@ -336,6 +336,8 @@ async function executeTransfer(reservationId, body, staffUser) {
         source.sales_label,
         plan.priced.beach_access_fees,
         source.id_photo_urls || [],
+        source.currency || 'EGP',
+        source.exchange_rate != null ? source.exchange_rate : 1,
       ]
     );
     const created = inserted.rows[0];

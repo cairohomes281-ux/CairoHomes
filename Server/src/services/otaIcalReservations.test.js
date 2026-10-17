@@ -134,6 +134,34 @@ describe('airbnbDetails', () => {
   });
 });
 
+describe('hasConflict SQL contract', () => {
+  it('only treats active stays as conflicts (dismiss tombstones must not block rebooks)', () => {
+    const src = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, 'otaIcalReservations.js'),
+      'utf8'
+    );
+    const fn = src.slice(src.indexOf('async function hasConflict'), src.indexOf('function placeholderNotes'));
+    assert.match(fn, /status IS DISTINCT FROM 'cancelled'/);
+    assert.doesNotMatch(fn, /ota_removed_at IS NULL/);
+  });
+});
+
+describe('finalizeOutsideChannelSplit keeps channel + UID', () => {
+  it('locks dates and attaches UID without forcing Outside Channel label', () => {
+    const src = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, 'otaIcalReservations.js'),
+      'utf8'
+    );
+    const fn = src.slice(
+      src.indexOf('async function finalizeOutsideChannelSplit'),
+      src.indexOf('async function importReservationsForFeeds')
+    );
+    assert.match(fn, /ota_dates_locked = true/);
+    assert.match(fn, /ota_event_uid = COALESCE/);
+    assert.doesNotMatch(fn, /booking_source = \$2/);
+  });
+});
+
 describe('matchImportedStay', () => {
   const reserved = {
     id: 1,

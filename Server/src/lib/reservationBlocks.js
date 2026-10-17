@@ -47,6 +47,11 @@ async function releaseReservationBlocks(wpPostId, checkIn, checkOut) {
          JOIN units u ON u.id = r.unit_id
          WHERE u.wp_post_id = b.wp_post_id
            AND r.status IS DISTINCT FROM 'cancelled'
+           AND NOT (
+             r.hold_expires_at IS NOT NULL
+             AND r.hold_expires_at < now()
+             AND r.status IN ('pending', 'hold')
+           )
            AND b.date >= r.check_in
            AND b.date < r.check_out
        )`,
@@ -92,6 +97,11 @@ async function purgeStaleReservationBlocks() {
         JOIN units u ON u.id = r.unit_id
         WHERE u.wp_post_id = b.wp_post_id
           AND r.status IS DISTINCT FROM 'cancelled'
+          AND NOT (
+            r.hold_expires_at IS NOT NULL
+            AND r.hold_expires_at < now()
+            AND r.status IN ('pending', 'hold')
+          )
           AND b.date >= r.check_in
           AND b.date < r.check_out
       )
@@ -118,6 +128,11 @@ async function syncAllActiveReservationBlocks() {
       JOIN units u ON u.id = r.unit_id
       , generate_series(r.check_in, r.check_out - 1, interval '1 day') d
       WHERE r.status IS DISTINCT FROM 'cancelled'
+        AND NOT (
+          r.hold_expires_at IS NOT NULL
+          AND r.hold_expires_at < now()
+          AND r.status IN ('pending', 'hold')
+        )
         AND u.wp_post_id IS NOT NULL
     )
     INSERT INTO unit_blocked_dates (wp_post_id, date, source, updated_at)

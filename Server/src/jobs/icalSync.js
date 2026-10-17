@@ -14,6 +14,13 @@ function startIcalSyncJob() {
       if (errors > 0) {
         console.warn(`[ical-sync] ${errors} calendar feed(s) failed`);
       }
+      try {
+        const { purgeStaleReservationBlocks } = require('../lib/reservationBlocks');
+        const purged = await purgeStaleReservationBlocks();
+        if (purged) console.log(`[ical-sync] purged ${purged} stale reservation block night(s)`);
+      } catch (purgeErr) {
+        console.warn('[ical-sync] block purge failed', purgeErr.message);
+      }
     } catch (err) {
       console.error('[ical-sync]', err.message);
     } finally {

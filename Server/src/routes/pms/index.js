@@ -2025,11 +2025,10 @@ router.put('/daily-prices/:unitId', requireRoles('admin', 'reservations_manager'
 
 
 const OTA_DETAILS_NEEDED_SQL = `(
-  r.ota_event_uid IS NOT NULL AND r.status <> 'cancelled' AND (
+  r.ota_event_uid IS NOT NULL AND r.status IS DISTINCT FROM 'cancelled' AND (
     COALESCE(r.total_amount, 0) <= 0
     OR NULLIF(btrim(COALESCE(r.guest_phone, '')), '') IS NULL
     OR r.guest_name IN ('Airbnb guest', 'Booking.com guest', 'Outside Channel guest')
-    OR lower(trim(COALESCE(r.booking_source, ''))) = 'outside channel'
   )
 )`;
 
@@ -2199,6 +2198,8 @@ router.post(
     
     const otaBlockStay = truthyFlag(b.ota_block_stay);
     let outsideSplit = null;
+    let otaEventUid = null;
+    let otaFeedId = null;
     if (otaBlockStay) {
       const { confirmStayDates } = require('../../services/otaIcalReservations');
       const confirmed = confirmStayDates(
@@ -2216,13 +2217,22 @@ router.post(
       b.booking_source = channel;
       b.currency = 'USD';
       b.exchange_rate = 1;
+      otaEventUid = b.ota_event_uid || `schedule-block:${b.unit_id}:${confirmed.spanStart}`;
+      const { rows: feedRows } = await query(
+        `SELECT id FROM unit_ota_feeds
+         WHERE unit_id = $1 AND platform = 'airbnb' AND enabled = true
+         ORDER BY id LIMIT 1`,
+        [b.unit_id]
+      );
+      otaFeedId = feedRows[0]?.id || null;
       outsideSplit = {
         unitId: b.unit_id,
         spanIn: confirmed.spanStart,
         spanOut: confirmed.spanEnd,
         stayIn: confirmed.start,
         stayOut: confirmed.end,
-        parentUid: b.ota_event_uid || `schedule-block:${b.unit_id}:${confirmed.spanStart}`,
+        parentUid: otaEventUid,
+        feedId: otaFeedId,
         createdBy: req.user.id,
       };
     }
@@ -2318,10 +2328,11 @@ router.post(
          owner_collected_type, owner_collected_amount,
          payment_method, transfer_proof_path, transfer_proof_name,
          hold_expires_at, adults, children, nanny_count, sales_label,
-         beach_access_fees, currency, exchange_rate
+         beach_access_fees, currency, exchange_rate,
+         ota_event_uid, ota_feed_id
        ) VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,0),$15,$16,$17,$18,$19,$20,$21,
-         $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37
+         $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39
        )
        RETURNING *`,
       [
@@ -2365,6 +2376,8 @@ router.post(
         beachAccessFeesFinal,
         money.currency,
         money.exchange_rate,
+        otaEventUid,
+        otaFeedId,
       ]
     );
 
@@ -2961,10 +2974,15 @@ router.post(
     await query(`DELETE FROM payments WHERE reservation_id = $1`, [req.params.id]);
 
     try {
-      const { syncBlocksForReservation } = require('../../lib/reservationBlocks');
+      const { syncBlocksForReservation, purgeStaleReservationBlocks } = require('../../lib/reservationBlocks');
       await syncBlocksForReservation(rows[0]);
+      await purgeStaleReservationBlocks();
     } catch (err) {
       console.warn('[reservations] block release on cancel failed', err.message);
+      try {
+        const { purgeStaleReservationBlocks } = require('../../lib/reservationBlocks');
+        await purgeStaleReservationBlocks();
+      } catch (_) {}
     }
 
     if (rows[0].booking_id) {

@@ -53,6 +53,20 @@ describe('calendar occupancy (Schedule ↔ guest)', () => {
     assert.equal(byDate.get('2026-09-10'), 'reservation');
   });
 
+  it('prefers a reservation over iCal on the same night so back-to-back stays stay closed', () => {
+    const byDate = mergeOccupancyByDate(
+      [
+        { date: '2026-09-10', source: 'ical:airbnb' },
+        { date: '2026-09-10', source: 'reservation' },
+      ],
+      '2026-09-01',
+      '2026-09-30'
+    );
+    assert.equal(byDate.get('2026-09-10'), 'reservation');
+    applyCheckoutTurnover(byDate, ['2026-09-10']);
+    assert.equal(byDate.get('2026-09-10'), 'reservation');
+  });
+
   it('does not treat unpriced as a reason to drop an explicit hold', () => {
     const byDate = mergeOccupancyByDate(
       [

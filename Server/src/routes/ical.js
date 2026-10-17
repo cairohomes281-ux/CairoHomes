@@ -16,10 +16,14 @@ router.get('/:slug.ics', async (req, res, next) => {
          AND (hold_expires_at IS NULL OR hold_expires_at > now())`,
       [unit.slug]
     );
+    // Do not re-export Airbnb-imported stays — that echoes their calendar back to them.
     const { rows: reservations } = await query(
       `SELECT check_in AS checkin, check_out AS checkout, id
        FROM reservations
-       WHERE unit_id = $1 AND status <> 'cancelled'`,
+       WHERE unit_id = $1
+         AND status IS DISTINCT FROM 'cancelled'
+         AND ota_event_uid IS NULL
+         AND (hold_expires_at IS NULL OR hold_expires_at > now())`,
       [unit.id]
     );
 

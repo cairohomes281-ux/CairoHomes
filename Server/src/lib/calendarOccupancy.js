@@ -43,7 +43,12 @@ function occupancySql({ wpScoped }) {
     FROM reservations r
     JOIN units u ON u.id = r.unit_id
     , generate_series(r.check_in, r.check_out - 1, interval '1 day') d
-    WHERE r.status <> 'cancelled'
+    WHERE r.status IS DISTINCT FROM 'cancelled'
+      AND NOT (
+        r.hold_expires_at IS NOT NULL
+        AND r.hold_expires_at < now()
+        AND r.status IN ('pending', 'hold')
+      )
       AND d >= $1::date AND d < $2::date
       ${unitFilter}
     UNION ALL
@@ -66,7 +71,12 @@ function stayCheckoutSql({ wpScoped }) {
       SELECT r.check_out AS d
       FROM reservations r
       JOIN units u ON u.id = r.unit_id
-      WHERE r.status <> 'cancelled'
+      WHERE r.status IS DISTINCT FROM 'cancelled'
+        AND NOT (
+          r.hold_expires_at IS NOT NULL
+          AND r.hold_expires_at < now()
+          AND r.status IN ('pending', 'hold')
+        )
         AND r.check_out >= $1::date AND r.check_out < $2::date
         ${resFilter}
       UNION
@@ -80,12 +90,25 @@ function stayCheckoutSql({ wpScoped }) {
   `;
 }
 
+/** Higher wins when the same night appears from multiple sources (first-wins hid next-guest stays). */
+function occupancySourceRank(source) {
+  const src = source || 'manual';
+  if (src === 'reservation' || src === 'booking') return 3;
+  if (SCHEDULE_HOLD_SOURCES.has(src)) return 2;
+  if (isIcalOccupancySource(src)) return 1;
+  return 1;
+}
+
 function mergeOccupancyByDate(rows, from, to) {
   const byDate = new Map();
   for (const row of rows || []) {
     const date = row?.date;
     if (!date || date < from || date >= to) continue;
-    if (!byDate.has(date)) byDate.set(date, row.source || 'manual');
+    const src = row.source || 'manual';
+    const prev = byDate.get(date);
+    if (prev == null || occupancySourceRank(src) > occupancySourceRank(prev)) {
+      byDate.set(date, src);
+    }
   }
   return byDate;
 }
@@ -146,6 +169,7 @@ module.exports = {
   SCHEDULE_HOLD_SOURCES,
   REQUIRED_OCCUPANCY_TABLES,
   isIcalOccupancySource,
+  occupancySourceRank,
   occupancySql,
   stayCheckoutSql,
   mergeOccupancyByDate,

@@ -1770,6 +1770,18 @@ router.put(
       if (blocks[0]) {
         return res.status(409).json({ error: 'Those extra nights are already booked' });
       }
+      const { rows: icalBusy } = await query(
+        `SELECT ib.date
+         FROM unit_ical_blocks ib
+         JOIN units u ON u.wp_post_id = ib.wp_post_id
+         WHERE u.id = $1
+           AND ib.date >= $2::date AND ib.date < $3::date
+         LIMIT 1`,
+        [unitId, oldOut, newOut]
+      );
+      if (icalBusy[0]) {
+        return res.status(409).json({ error: 'Those extra nights are already booked on Airbnb' });
+      }
       const { rows: paidRows } = await query(
         `SELECT COALESCE(total_amount, 0)::float AS total_amount,
                 COALESCE(amount_paid, 0)::float AS amount_paid,
