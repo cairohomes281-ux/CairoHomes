@@ -97,7 +97,7 @@ function buildExportEvents(input) {
       end,
       summary: 'Booked',
       status: 'CONFIRMED',
-      sequence: 0,
+      sequence: 1,
       stamp: utcStamp(now),
     });
   }
@@ -110,6 +110,10 @@ function buildExportEvents(input) {
     const cancelled = String(r.status || '').toLowerCase() === 'cancelled';
     const uid = `res-${r.id}@cairohomes.com`;
     const stamp = utcStamp(r.updated_at ? new Date(r.updated_at) : now);
+    // Bump SEQUENCE from updated_at so Airbnb/Booking refresh date changes.
+    const sequence = r.updated_at
+      ? Math.max(1, Math.floor(new Date(r.updated_at).getTime() / 60000) % 1000000)
+      : 1;
 
     if (cancelled) {
       // Keep UID visible so Airbnb updates the imported event off the stay dates.
@@ -121,7 +125,7 @@ function buildExportEvents(input) {
         end: '1970-01-02',
         summary: 'Cancelled',
         status: 'CANCELLED',
-        sequence: 2,
+        sequence: Math.max(2, sequence + 1),
         stamp,
       });
       continue;
@@ -134,7 +138,7 @@ function buildExportEvents(input) {
       end,
       summary: 'Booked',
       status: 'CONFIRMED',
-      sequence: 0,
+      sequence,
       stamp,
     });
   }

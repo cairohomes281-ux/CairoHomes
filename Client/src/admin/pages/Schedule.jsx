@@ -188,7 +188,7 @@ function otaBlockReservations(unit, dateStrs, blockMap, stays, dismissals = []) 
   while (i < dateStrs.length) {
     const day = dateStrs[i];
     const platform = otaPlatformFromSource(blocks[day]);
-    if ((platform !== 'airbnb' && platform !== 'booking') || covered.has(day)) {
+    if (!platform || covered.has(day)) {
       i += 1;
       continue;
     }
@@ -196,7 +196,7 @@ function otaBlockReservations(unit, dateStrs, blockMap, stays, dismissals = []) 
     i += 1;
     while (i < dateStrs.length && !covered.has(dateStrs[i])) {
       const next = otaPlatformFromSource(blocks[dateStrs[i]]);
-      if (next !== 'airbnb' && next !== 'booking') break;
+      if (!next) break;
       i += 1;
     }
     const end = addDays(dateStrs[i - 1], 1);

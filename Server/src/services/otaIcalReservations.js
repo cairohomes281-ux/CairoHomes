@@ -4,7 +4,13 @@ const { notifyStaff } = require('./pmsNotifications');
 
 const OUTSIDE_LABEL = 'Outside Channel';
 const OUTSIDE_GUEST = 'Outside Channel guest';
-const PLATFORM_LABELS = { airbnb: OUTSIDE_LABEL };
+const PLATFORM_LABELS = {
+  airbnb: OUTSIDE_LABEL,
+  booking: OUTSIDE_LABEL,
+  travigo: OUTSIDE_LABEL,
+  other: OUTSIDE_LABEL,
+};
+const PLATFORM_SYNC_RANK = { airbnb: 0, booking: 1, travigo: 2, other: 3 };
 const PLACEHOLDER_NAMES = new Set(['airbnb guest', 'booking.com guest', 'outside channel guest']);
 const NON_RESERVATION_BLOCK_SOURCES = ['reservation', 'reservation_import', 'booking'];
 
@@ -91,9 +97,9 @@ function airbnbDetails(description) {
 }
 
 /**
- * Only real Airbnb bookings become Outside Channel stays.
- * Host "Not available" / closed blocks stay on unit_ical_blocks only so a cancel
- * is not immediately re-attached to a new placeholder with a different UID.
+ * Airbnb guest bookings (Reserved / reservation URL / confirmation code).
+ * Matching is UID-only, so a later "Not available" event never reattaches to a
+ * cancelled Reserved stay.
  */
 function isReservationEvent(platform, event) {
   if (platform !== 'airbnb' || !event?.start || !event?.end) return false;
@@ -105,6 +111,57 @@ function isReservationEvent(platform, event) {
   if (summary === 'reserved' || summary.startsWith('reserved ')) return true;
   if (/airbnb\.com\/.*reservation/i.test(description)) return true;
   return false;
+}
+
+/** Airbnb host / cross-channel busy blocks (often Booking.com mirrored on Airbnb). */
+function isAirbnbBusyBlockEvent(platform, event) {
+  if (platform !== 'airbnb' || !event?.start || !event?.end) return false;
+  if (isReservationEvent(platform, event)) return false;
+  const summary = String(event.summary || '').trim().toLowerCase();
+  return /not\s*available|unavailable|blocked|closed/.test(summary);
+}
+
+/** Booking.com / Travigo / other iCal busy events → Outside Channel stays. */
+function isGenericOtaBusyEvent(platform, event) {
+  if (!event?.start || !event?.end) return false;
+  if (!PLATFORM_LABELS[platform] || platform === 'airbnb') return false;
+  // These feeds only publish busy ranges (CLOSED / reserved / blocked).
+  return true;
+}
+
+/** Events that should become Outside Channel stays on the PMS. */
+function isImportableEvent(platform, event) {
+  if (!event?.start || !event?.end || !PLATFORM_LABELS[platform]) return false;
+  if (platform === 'airbnb') {
+    return isReservationEvent(platform, event) || isAirbnbBusyBlockEvent(platform, event);
+  }
+  return isGenericOtaBusyEvent(platform, event);
+}
+
+/**
+ * UIDs we invent locally (Schedule fill bars). They never appear on an OTA ICS,
+ * so the cancel loop must not treat "missing from ICS" as a channel cancel.
+ */
+function isLocalOtaUid(uid) {
+  const value = String(uid || '');
+  if (!value) return false;
+  if (value.startsWith('schedule-block:')) return true;
+  if (value.startsWith('dismissed:')) return true;
+  if (value.startsWith('stay:')) return true;
+  const parent = splitParentUid(value);
+  if (parent && isLocalOtaUid(parent)) return true;
+  return false;
+}
+
+function channelNotes(platform, label, details, reserved) {
+  if (platform === 'airbnb' && reserved) return placeholderNotes(label, details);
+  if (platform === 'booking') {
+    return 'Imported from the Booking.com calendar. Add the guest name, phone and amount — or dismiss if it is only a closed block.';
+  }
+  if (platform === 'airbnb') {
+    return `Blocked on the Airbnb calendar (often another OTA). Add the guest name, phone and amount — or dismiss if it is only a host block.`;
+  }
+  return `Imported from the ${label} calendar. Add the guest name, phone and amount — or dismiss if it is only a closed block.`;
 }
 
 function nightsBetween(checkIn, checkOut) {
@@ -321,6 +378,20 @@ async function notifyAdmins({ type, title, message, reservationId }) {
   }
 }
 
+async function icalNightsStillBusy(wpPostId, feedId, checkIn, checkOut) {
+  if (!wpPostId || !checkIn || !checkOut) return false;
+  const { rows } = await query(
+    `SELECT 1 FROM unit_ical_blocks
+     WHERE wp_post_id = $1
+       AND feed_id = $2
+       AND date >= $3::date
+       AND date < $4::date
+     LIMIT 1`,
+    [wpPostId, feedId, checkIn, checkOut]
+  );
+  return Boolean(rows[0]);
+}
+
 /**
  * Create, update or cancel placeholder reservations for one feed's iCal events.
  * Only stays that end today or later are touched.
@@ -331,10 +402,19 @@ async function importFeedReservations(feed, ics) {
   if (!label || !feed.unit_id || !/END:VCALENDAR/i.test(String(ics || ''))) return result;
 
   const today = todayIsoBusiness();
-  const events = parseIcalEvents(ics).filter(
-    (e) => e.uid && e.start && e.end && e.end > e.start && isReservationEvent(feed.platform, e)
+  const allEvents = parseIcalEvents(ics).filter(
+    (e) => e.uid && e.start && e.end && e.end > e.start
   );
-  const upcoming = events.filter((e) => e.end > today);
+  // Prefer Reserved first, then Not available / Booking echoes — UID-only match
+  // so a cancel never reuses a different event's UID.
+  const upcoming = allEvents
+    .filter((e) => e.end > today && isImportableEvent(feed.platform, e))
+    .sort((a, b) => {
+      const aRes = isReservationEvent(feed.platform, a) ? 0 : 1;
+      const bRes = isReservationEvent(feed.platform, b) ? 0 : 1;
+      return aRes - bRes || String(a.start).localeCompare(String(b.start));
+    });
+  const liveUids = new Set(allEvents.map((e) => e.uid));
   const unitTitle = feed.unit_title || feed.unit_slug || 'unit';
 
   const { rows: imported } = await query(
@@ -351,6 +431,8 @@ async function importFeedReservations(feed, ics) {
   for (const ev of upcoming) {
     const details = feed.platform === 'airbnb' ? airbnbDetails(ev.description) : { code: null, last4: null };
     const existing = matchImportedStay(imported, ev, seen);
+    const reserved = isReservationEvent(feed.platform, ev);
+    const notes = channelNotes(feed.platform, label, details, reserved);
 
     if (existing) {
       seen.add(existing.id);
@@ -383,6 +465,7 @@ async function importFeedReservations(feed, ics) {
           feed.id,
         ]
       );
+      if (!rows[0]) continue;
       await resyncReservationBlocks(datesChanged ? existing : null, rows[0]);
       result.updated += 1;
       continue;
@@ -399,6 +482,52 @@ async function importFeedReservations(feed, ics) {
       return result;
     }
 
+    const { rows: byUid } = await query(
+      `SELECT id, status, ota_removed_at, check_in::text AS check_in, check_out::text AS check_out
+       FROM reservations
+       WHERE ota_feed_id = $1 AND ota_event_uid = $2
+       LIMIT 1`,
+      [feed.id, ev.uid]
+    );
+    if (byUid[0]) {
+      const row = byUid[0];
+      seen.add(row.id);
+      const dismissed = row.status === 'cancelled' && !row.ota_removed_at;
+      if (dismissed) {
+        result.skipped += 1;
+        continue;
+      }
+      const reinstate = row.status === 'cancelled' && row.ota_removed_at;
+      const { rows } = await query(
+        `UPDATE reservations SET
+           check_in = $2::date, check_out = $3::date, nights = $4,
+           status = CASE WHEN $5 THEN 'confirmed' ELSE status END,
+           ota_removed_at = CASE WHEN $5 THEN NULL ELSE ota_removed_at END,
+           ota_reservation_code = COALESCE($6, ota_reservation_code),
+           ota_phone_last4 = COALESCE($7, ota_phone_last4),
+           updated_at = now()
+         WHERE id = $1
+         RETURNING *`,
+        [
+          row.id,
+          ev.start,
+          ev.end,
+          nightsBetween(ev.start, ev.end),
+          Boolean(reinstate),
+          details.code,
+          details.last4,
+        ]
+      );
+      if (rows[0]) {
+        await resyncReservationBlocks(
+          row.check_in !== ev.start || row.check_out !== ev.end ? row : null,
+          rows[0]
+        );
+        result.updated += 1;
+      }
+      continue;
+    }
+
     const { rows } = await query(
       `INSERT INTO reservations (
          unit_id, guest_name, check_in, check_out, nights, total_amount, amount_paid,
@@ -406,7 +535,6 @@ async function importFeedReservations(feed, ics) {
          ota_feed_id, ota_event_uid, ota_reservation_code, ota_phone_last4,
          currency, exchange_rate
        ) VALUES ($1,$2,$3::date,$4::date,$5,0,0,$13,$6,'confirmed',$7,1,$8,$9,$10,$11,$12,'USD',1)
-       ON CONFLICT DO NOTHING
        RETURNING *`,
       [
         feed.unit_id,
@@ -415,7 +543,7 @@ async function importFeedReservations(feed, ics) {
         ev.end,
         nightsBetween(ev.start, ev.end),
         OUTSIDE_LABEL,
-        placeholderNotes(label, details),
+        notes,
         createdBy,
         feed.id,
         ev.uid,
@@ -424,9 +552,13 @@ async function importFeedReservations(feed, ics) {
         'pending',
       ]
     );
-    if (!rows[0]) continue;
+    if (!rows[0]) {
+      result.skipped += 1;
+      continue;
+    }
     await syncBlocksForReservation(rows[0]);
     result.created += 1;
+    seen.add(rows[0].id);
     await notifyAdmins({
       type: 'ota_reservation',
       title: `New ${label} booking`,
@@ -435,17 +567,23 @@ async function importFeedReservations(feed, ics) {
     });
   }
 
-  const liveUids = new Set(events.map((e) => e.uid));
   for (const r of imported) {
     if (seen.has(r.id)) continue;
-    // Only cancel stays we can prove left the calendar (they must have a UID).
     if (!r.ota_event_uid) continue;
-    if (liveUids.has(r.ota_event_uid)) continue;
-    const parentUid = splitParentUid(r.ota_event_uid);
-    if (parentUid && liveUids.has(parentUid)) continue;
-    // Still on the books (or mid-stay) and the calendar event is gone → OTA cancel.
     if (String(r.status || '').toLowerCase() === 'cancelled') continue;
     if (!(r.check_out > today)) continue;
+
+    if (isLocalOtaUid(r.ota_event_uid)) {
+      // Schedule-filled stays: cancel only when Airbnb opened every night in the span.
+      if (await icalNightsStillBusy(feed.wp_post_id, feed.id, r.check_in, r.check_out)) {
+        continue;
+      }
+    } else {
+      if (liveUids.has(r.ota_event_uid)) continue;
+      const parentUid = splitParentUid(r.ota_event_uid);
+      if (parentUid && liveUids.has(parentUid)) continue;
+    }
+
     const { rows } = await query(
       `UPDATE reservations
        SET status = 'cancelled', ota_removed_at = now(), updated_at = now()
@@ -537,10 +675,15 @@ async function finalizeOutsideChannelSplit({
   return confirmed;
 }
 
-/** Import Airbnb calendars. Booking.com nights are already on that calendar. */
+/** Import every linked OTA calendar (Airbnb, Booking.com, …). Airbnb first so overlaps collapse cleanly. */
 async function importReservationsForFeeds(items) {
   const totals = { created: 0, updated: 0, cancelled: 0, skipped: 0 };
-  const ordered = items.filter((item) => item?.feed?.platform === 'airbnb');
+  const ordered = items
+    .filter((item) => PLATFORM_LABELS[item?.feed?.platform])
+    .sort(
+      (a, b) =>
+        (PLATFORM_SYNC_RANK[a.feed.platform] ?? 9) - (PLATFORM_SYNC_RANK[b.feed.platform] ?? 9)
+    );
   for (const { feed, ics } of ordered) {
     try {
       const r = await importFeedReservations(feed, ics);
@@ -560,6 +703,10 @@ async function importReservationsForFeeds(items) {
 module.exports = {
   parseIcalEvents,
   isReservationEvent,
+  isAirbnbBusyBlockEvent,
+  isGenericOtaBusyEvent,
+  isImportableEvent,
+  isLocalOtaUid,
   airbnbDetails,
   stayToCancel,
   confirmStayDates,
@@ -571,4 +718,5 @@ module.exports = {
   OUTSIDE_LABEL,
   OUTSIDE_GUEST,
   isPlaceholderGuest,
+  PLATFORM_LABELS,
 };

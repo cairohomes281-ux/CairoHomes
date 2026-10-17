@@ -8,7 +8,10 @@ import EmptyState from '../components/ui/EmptyState';
 import SearchFilter from '../components/ui/SearchFilter';
 import Modal from '../components/ui/Modal';
 
-const PLATFORMS = [{ id: 'airbnb', label: 'Airbnb' }];
+const PLATFORMS = [
+  { id: 'airbnb', label: 'Airbnb' },
+  { id: 'booking', label: 'Booking.com' },
+];
 
 const STATUS_STYLES = {
   connected: 'bg-emerald-100 text-emerald-800',
@@ -72,7 +75,7 @@ function UnitDetailsModal({ unit, open, onClose, focusPlatform }) {
     try {
       await navigator.clipboard.writeText(unit.export_url);
       setCopied(true);
-      toast.success('Cairo Homes export calendar copied — paste it into Airbnb’s import calendar');
+      toast.success('Cairo Homes export calendar copied — paste it into each OTA’s import calendar');
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error('Could not copy link');
@@ -134,13 +137,13 @@ function UnitDetailsModal({ unit, open, onClose, focusPlatform }) {
         <div className="rounded-2xl border border-dashed border-ch-line bg-[#f7f9fc] p-4 space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-ch-pine">
             <Link2 className="w-4 h-4" />
-            Cairo Homes export calendar (PMS → Airbnb)
+            Cairo Homes export calendar (PMS → OTAs)
           </div>
           <p className="text-xs text-ch-muted">
-            Paste this into Airbnb → Availability → Connect calendars → Import calendar. PMS bookings and
-            blocks close nights on Airbnb when Airbnb refreshes (about every 3 hours; use Refresh for sooner).
-            After a PMS cancel, the same calendar link moves that stay off the dates — if Airbnb leaves an
-            orphan block, unblock those nights once in Airbnb. iCal does not push rates.
+            Paste this into each channel’s import calendar (Airbnb, Booking.com, …). PMS bookings and blocks
+            close nights when that OTA refreshes the link (Airbnb about every 3 hours — use Refresh for sooner).
+            After a PMS cancel, the same link updates the feed; if a channel leaves an orphan block, unblock
+            those nights once in that OTA. iCal does not push rates.
           </p>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
@@ -161,10 +164,11 @@ function UnitDetailsModal({ unit, open, onClose, focusPlatform }) {
         </div>
 
         <div className="space-y-4">
-          <p className="text-sm font-semibold text-ch-pine">Airbnb import calendar (Airbnb → PMS)</p>
+          <p className="text-sm font-semibold text-ch-pine">OTA export calendars (channel → PMS)</p>
           <p className="text-xs text-ch-muted -mt-2">
-            Paste the Airbnb export link. Nights blocked on Airbnb or Booking.com come in as one Outside Channel
-            reservation.
+            Paste each channel’s export link. Cairo Homes pulls every minute. Busy nights become Outside
+            Channel reservations to fill — dismiss host-only blocks. Overlapping echoes across channels are
+            collapsed into one stay.
           </p>
           {PLATFORMS.map((p) => {
             const feed = feedFor(unit, p.id);
@@ -253,7 +257,8 @@ export default function CalendarSync() {
         <div>
           <h1 className="page-title">Calendar Sync</h1>
           <p className="page-subtitle">
-            The Airbnb calendar updates automatically every minute. Booking.com follows Airbnb.
+            Linked OTA calendars (Airbnb, Booking.com, …) pull into the PMS every minute. Paste the Cairo
+            Homes export link into each channel so PMS bookings block those calendars too.
           </p>
         </div>
       </div>
@@ -284,11 +289,11 @@ export default function CalendarSync() {
         <EmptyState
           icon={Link2}
           title="No units"
-          description="Add a unit to link its Airbnb calendar."
+          description="Add a unit to link its OTA calendars."
         />
       ) : (
         <div className="rounded-2xl border border-ch-line bg-white overflow-hidden">
-          <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-2 px-4 py-2.5 border-b border-ch-line bg-[#f7f9fc] text-[11px] uppercase tracking-wider text-ch-muted font-semibold">
+          <div className="grid grid-cols-[minmax(0,1.4fr)_repeat(2,minmax(0,1fr))] gap-2 px-4 py-2.5 border-b border-ch-line bg-[#f7f9fc] text-[11px] uppercase tracking-wider text-ch-muted font-semibold">
             <div>Unit</div>
             {PLATFORMS.map((p) => (
               <div key={p.id} className="text-center">
@@ -299,7 +304,7 @@ export default function CalendarSync() {
           <ul className="divide-y divide-ch-line">
             {filtered.map((unit) => (
               <li key={unit.id}>
-                <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-2 items-center px-4 py-3 hover:bg-ch-pine-50/40">
+                <div className="grid grid-cols-[minmax(0,1.4fr)_repeat(2,minmax(0,1fr))] gap-2 items-center px-4 py-3 hover:bg-ch-pine-50/40">
                   <button type="button" onClick={() => openUnit(unit)} className="text-left min-w-0">
                     <p className="font-medium text-ch-pine break-words">{unitCode(unit)}</p>
                     {unit.status && unit.status !== 'published' ? (

@@ -2220,9 +2220,16 @@ router.post(
       otaEventUid = b.ota_event_uid || `schedule-block:${b.unit_id}:${confirmed.spanStart}`;
       const { rows: feedRows } = await query(
         `SELECT id FROM unit_ota_feeds
-         WHERE unit_id = $1 AND platform = 'airbnb' AND enabled = true
-         ORDER BY id LIMIT 1`,
-        [b.unit_id]
+         WHERE unit_id = $1 AND enabled = true AND ical_url IS NOT NULL AND ical_url <> ''
+         ORDER BY CASE
+           WHEN lower(platform) = 'airbnb' AND lower($2) LIKE '%airbnb%' THEN 0
+           WHEN lower(platform) = 'booking' AND lower($2) LIKE '%booking%' THEN 0
+           WHEN lower(platform) = 'airbnb' THEN 1
+           WHEN lower(platform) = 'booking' THEN 2
+           ELSE 3
+         END, id
+         LIMIT 1`,
+        [b.unit_id, channel]
       );
       otaFeedId = feedRows[0]?.id || null;
       outsideSplit = {

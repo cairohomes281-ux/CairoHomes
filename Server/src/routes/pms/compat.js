@@ -772,11 +772,6 @@ router.put('/ota-calendar/:unitId/:platform', requireRoles(...RESERVATIONS_CALEN
     const { runChannelSync } = require('../../lib/channelManager');
     const platform = normalizeOtaPlatform(req.params.platform);
     if (!platform) return res.status(400).json({ error: 'Invalid platform' });
-    if (platform !== 'airbnb') {
-      return res.status(400).json({
-        error: 'Link Airbnb only. Booking.com is connected to Airbnb, so it blocks the same nights.',
-      });
-    }
 
     const { rows: u } = await query(
       `SELECT id, wp_post_id, slug, title FROM units WHERE id = $1`,

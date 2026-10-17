@@ -3,6 +3,9 @@ const assert = require('node:assert/strict');
 const {
   parseIcalEvents,
   isReservationEvent,
+  isAirbnbBusyBlockEvent,
+  isImportableEvent,
+  isLocalOtaUid,
   airbnbDetails,
   stayToCancel,
   confirmStayDates,
@@ -50,16 +53,31 @@ describe('parseIcalEvents', () => {
 });
 
 describe('isReservationEvent', () => {
-  it('imports Airbnb reserved stays only — host Not available stays as calendar blocks', () => {
+  it('treats Airbnb Reserved as a guest booking event', () => {
     const [stay, block] = parseIcalEvents(AIRBNB_ICS);
     assert.equal(isReservationEvent('airbnb', stay), true);
     assert.equal(isReservationEvent('airbnb', block), false);
   });
 
-  it('does not import Booking.com events, because that calendar already follows Airbnb', () => {
+  it('imports Not available blocks as Outside Channel (Booking.com echoes on Airbnb)', () => {
+    const [stay, block] = parseIcalEvents(AIRBNB_ICS);
+    assert.equal(isAirbnbBusyBlockEvent('airbnb', block), true);
+    assert.equal(isImportableEvent('airbnb', stay), true);
+    assert.equal(isImportableEvent('airbnb', block), true);
+  });
+
+  it('imports Booking.com feed busy events as Outside Channel stays', () => {
     const [ev] = parseIcalEvents(BOOKING_ICS);
     assert.equal(isReservationEvent('booking', ev), false);
-    assert.equal(isReservationEvent('other', ev), false);
+    assert.equal(isImportableEvent('booking', ev), true);
+  });
+});
+
+describe('isLocalOtaUid', () => {
+  it('protects Schedule-filled stays from being cancelled every sync minute', () => {
+    assert.equal(isLocalOtaUid('schedule-block:unit-1:2026-10-21'), true);
+    assert.equal(isLocalOtaUid('split:schedule-block%3Aunit-1%3A2026-10-21:2026-10-23:2026-10-25'), true);
+    assert.equal(isLocalOtaUid('1418fb94e984@airbnb.com'), false);
   });
 });
 

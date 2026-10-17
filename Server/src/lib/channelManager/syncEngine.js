@@ -125,7 +125,7 @@ async function syncIcalFeed(feedId) {
   );
   const feed = rows[0];
   if (!feed) throw new Error('Feed not found');
-  if (String(feed.platform || '').toLowerCase() !== 'airbnb') {
+  if (!feed.enabled || !feed.ical_url) {
     return { ok: true, skipped: true, status: 'disconnected' };
   }
 
@@ -187,21 +187,31 @@ async function syncAllIcal({ unitId = null } = {}) {
   const { rows: feeds } = await query(
     `SELECT id FROM unit_ota_feeds
      WHERE enabled = true
-       AND lower(platform) = 'airbnb'
        AND ical_url IS NOT NULL AND ical_url <> ''
        ${filter}
-     ORDER BY id`,
+     ORDER BY CASE lower(platform)
+         WHEN 'airbnb' THEN 0 WHEN 'booking' THEN 1 ELSE 2 END,
+       id`,
     params
   );
-  const results = [];
-  for (const feed of feeds) {
-    results.push({ feed_id: feed.id, ...(await syncIcalFeed(feed.id)) });
-  }
+  const concurrency = Math.max(1, Math.min(4, Number(process.env.ICAL_SYNC_CONCURRENCY || 3)));
+  const results = new Array(feeds.length);
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, feeds.length || 1) }, async () => {
+      while (cursor < feeds.length) {
+        const idx = cursor++;
+        const feed = feeds[idx];
+        results[idx] = { feed_id: feed.id, ...(await syncIcalFeed(feed.id)) };
+      }
+    })
+  );
   return {
     feeds: feeds.length,
     errors: results.filter((r) => !r.ok).length,
     results,
     monthsAhead: GUEST_AVAILABILITY_MONTHS,
+    concurrency,
   };
 }
 

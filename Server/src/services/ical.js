@@ -121,10 +121,16 @@ async function getEnabledOtaFeeds({ unitId = null } = {}) {
      FROM unit_ota_feeds f
      JOIN units u ON u.id = f.unit_id
      WHERE f.enabled = true
-       AND lower(f.platform) = 'airbnb'
        AND f.ical_url IS NOT NULL AND f.ical_url <> ''
        ${filter}
-     ORDER BY u.title NULLS LAST, f.platform`,
+     ORDER BY u.title NULLS LAST,
+       CASE lower(f.platform)
+         WHEN 'airbnb' THEN 0
+         WHEN 'booking' THEN 1
+         WHEN 'travigo' THEN 2
+         ELSE 3
+       END,
+       f.platform`,
     params
   );
   return rows;
@@ -252,9 +258,11 @@ async function refreshIcalBlocks({ monthsAhead = MONTHS_AHEAD, unitId = null } =
 async function getIcalUrl(wpPostId) {
   const { rows } = await query(
     `SELECT ical_url FROM unit_ota_feeds
-     WHERE wp_post_id = $1 AND enabled = true AND lower(platform) = 'airbnb'
+     WHERE wp_post_id = $1 AND enabled = true
        AND ical_url IS NOT NULL AND ical_url <> ''
-     ORDER BY updated_at DESC
+     ORDER BY CASE lower(platform)
+         WHEN 'airbnb' THEN 0 WHEN 'booking' THEN 1 ELSE 2 END,
+       updated_at DESC
      LIMIT 1`,
     [wpPostId]
   );
@@ -265,7 +273,7 @@ async function fetchUpstreamBusyDates(wpPostId, from, to) {
   const { rows: feeds } = await query(
     `SELECT id, wp_post_id, platform, ical_url
      FROM unit_ota_feeds
-     WHERE wp_post_id = $1 AND enabled = true AND lower(platform) = 'airbnb'
+     WHERE wp_post_id = $1 AND enabled = true
        AND ical_url IS NOT NULL AND ical_url <> ''`,
     [wpPostId]
   );

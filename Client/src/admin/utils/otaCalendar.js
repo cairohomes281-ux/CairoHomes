@@ -34,8 +34,7 @@ export function otaPlatformFromSource(source) {
 export function otaBlockLook(source) {
   if (!isOtaBlockSource(source)) return null;
   const platform = otaPlatformFromSource(source);
-  if (platform === 'airbnb' || platform === 'booking') return OTA_LOOK[platform];
-  return null;
+  return OTA_LOOK[platform] || OUTSIDE_LOOK;
 }
 
 export function otaBlockLabel(source) {
