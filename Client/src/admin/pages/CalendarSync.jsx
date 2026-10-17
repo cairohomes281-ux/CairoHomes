@@ -137,8 +137,10 @@ function UnitDetailsModal({ unit, open, onClose, focusPlatform }) {
             Cairo Homes export calendar (PMS → Airbnb)
           </div>
           <p className="text-xs text-ch-muted">
-            Paste this into Airbnb’s import calendar. A block on Airbnb also blocks Booking.com, because those
-            two calendars are already connected. iCal does not push rates or restrictions.
+            Paste this into Airbnb → Availability → Connect calendars → Import calendar. PMS bookings and
+            blocks close nights on Airbnb when Airbnb refreshes (about every 3 hours; use Refresh for sooner).
+            After a PMS cancel, the same calendar link moves that stay off the dates — if Airbnb leaves an
+            orphan block, unblock those nights once in Airbnb. iCal does not push rates.
           </p>
           <div className="flex flex-col sm:flex-row gap-2">
             <input

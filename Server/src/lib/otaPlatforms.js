@@ -32,7 +32,10 @@ function isIcalOccupancySource(source) {
 }
 
 function calendarExportUrl(slug) {
-  const base = String(process.env.FRONTEND_URL || 'https://cairohomes-eg.com').replace(/\/$/, '');
+  // Prefer an explicit public site URL so Airbnb always gets a stable https .ics link.
+  const base = String(
+    process.env.CALENDAR_PUBLIC_URL || process.env.FRONTEND_URL || 'https://cairohomes-eg.com'
+  ).replace(/\/$/, '');
   return `${base}/api/calendar/${slug}.ics`;
 }
 
