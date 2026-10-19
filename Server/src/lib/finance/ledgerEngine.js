@@ -62,7 +62,7 @@ function treasuryAccountForMethod(method) {
   const m = String(method || '').toLowerCase();
   if (m === 'instapay' || m === 'bank_transfer') return '101000';
   if (m === 'cash') return '103000';
-  if (m === 'credit_card' || m === 'online' || m === 'paymob_card') return '106000';
+  if (m === 'credit_card' || m === 'visa' || m === 'online' || m === 'paymob_card') return '106000';
   return '103000';
 }
 

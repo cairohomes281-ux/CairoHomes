@@ -2079,7 +2079,7 @@ router.post('/financial-system/insurance-refunds/:id/settle', requireRoles('admi
     }
 
     const method = String(req.body.payment_method || 'cash').toLowerCase();
-    const allowedMethods = new Set(['cash', 'instapay', 'bank_transfer', 'credit_card', 'online']);
+    const allowedMethods = new Set(['cash', 'instapay', 'visa', 'bank_transfer', 'credit_card', 'online']);
     if (!allowedMethods.has(method)) {
       return res.status(400).json({ error: 'Invalid payment_method' });
     }

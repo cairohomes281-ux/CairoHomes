@@ -3011,6 +3011,7 @@ function InsuranceRefundsTool({ onOpenAccount }) {
                 <select className="input" value={method} onChange={(e) => setMethod(e.target.value)}>
                   <option value="cash">{t('pms.fin.insurance.cashMethod')}</option>
                   <option value="instapay">{t('pms.fin.insurance.instapayMethod')}</option>
+                  <option value="visa">{t('pms.fin.insurance.visaMethod')}</option>
                   <option value="bank_transfer">{t('pms.fin.insurance.bankTransferMethod')}</option>
                   <option value="credit_card">{t('pms.fin.insurance.cardMethod')}</option>
                 </select>

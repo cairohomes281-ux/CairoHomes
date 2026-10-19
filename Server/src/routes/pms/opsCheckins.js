@@ -518,7 +518,7 @@ router.post(
         }
       } else {
         let method = String(req.body?.payment_method || 'cash').toLowerCase();
-        if (!['cash', 'instapay', 'bank_transfer'].includes(method)) method = 'cash';
+        if (!['cash', 'instapay', 'visa', 'bank_transfer'].includes(method)) method = 'cash';
         splits.push({
           amount_original: amountForeign,
           amount: amountEgp,
@@ -992,7 +992,7 @@ router.post(
       }
 
       let method = String(req.body?.payment_method || 'cash').toLowerCase();
-      if (!['cash', 'instapay', 'bank_transfer'].includes(method)) method = 'cash';
+      if (!['cash', 'instapay', 'visa', 'bank_transfer'].includes(method)) method = 'cash';
 
       let refunded =
         req.body?.refunded_amount != null && req.body.refunded_amount !== ''

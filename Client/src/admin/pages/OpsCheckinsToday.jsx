@@ -170,6 +170,7 @@ function CollectPaymentMethods({
         <select className="input text-sm py-1.5" value={method} onChange={(e) => onMethodChange(e.target.value)}>
           <option value="cash">Cash</option>
           <option value="instapay">InstaPay</option>
+          <option value="visa">Visa</option>
           <option value="split">Both (cash + InstaPay)</option>
         </select>
       </div>

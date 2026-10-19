@@ -2284,11 +2284,11 @@ router.post(
         ? parseFloat(b.total_amount) || 0
         : parseFloat(b.owner_collected_amount) || 0;
 
-    const allowedMethods = new Set(['cash', 'instapay', 'bank_transfer', 'credit_card', 'online', 'paymob_card']);
+    const allowedMethods = new Set(['cash', 'instapay', 'visa', 'bank_transfer', 'credit_card', 'online', 'paymob_card']);
     let paymentMethod = String(b.payment_method || '').toLowerCase() || null;
     if (paymentMethod && !allowedMethods.has(paymentMethod)) paymentMethod = null;
     
-    if (paymentMethod && !['cash', 'instapay'].includes(paymentMethod) && !truthyFlag(b.is_owner_reservation) && !truthyFlag(b.is_hold)) {
+    if (paymentMethod && !['cash', 'instapay', 'visa'].includes(paymentMethod) && !truthyFlag(b.is_owner_reservation) && !truthyFlag(b.is_hold)) {
       paymentMethod = 'cash';
     }
 
@@ -2395,7 +2395,7 @@ router.post(
       !isHold &&
       !isOwnerBlock &&
       paymentMethod &&
-      ['cash', 'instapay'].includes(paymentMethod)
+      ['cash', 'instapay', 'visa'].includes(paymentMethod)
     ) {
       let amountToCollect = totalAmount - amountPaid;
       if (ownerCollectedType === 'full') {
