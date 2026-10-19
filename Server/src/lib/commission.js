@@ -1,6 +1,7 @@
 
 
-const GUEST_SERVICE_FEE_PCT = 15;
+/** Guest-facing service fee + taxes on website quotes. Set to 0 to disable. */
+const GUEST_SERVICE_FEE_PCT = 0;
 
 function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -25,7 +26,7 @@ function ownerAccommodationGross(reservation) {
 
   if (fromPpn > 0) return fromPpn;
 
-  if (total > 0) {
+  if (total > 0 && GUEST_SERVICE_FEE_PCT > 0) {
     return round2(total / (1 + GUEST_SERVICE_FEE_PCT / 100));
   }
 

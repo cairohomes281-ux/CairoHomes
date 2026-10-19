@@ -790,7 +790,11 @@ function editStayNights(checkIn, checkOut) {
 }
 
 function EditReservationModal({ open, onClose, editId, editForm, setEditForm, unitsList, usersList, onSave, saving }) {
-  const cur = editForm.currency === 'USD' ? 'USD' : 'EGP';
+  const cur = ['EGP', 'USD', 'EUR', 'GBP', 'SAR', 'AED', 'KWD', 'QAR'].includes(
+    String(editForm.currency || '').toUpperCase()
+  )
+    ? String(editForm.currency).toUpperCase()
+    : 'EGP';
   const nights = editStayNights(editForm.check_in, editForm.check_out);
 
   const setPricePerNight = (value) => {

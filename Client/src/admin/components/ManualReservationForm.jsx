@@ -147,15 +147,19 @@ export default function ManualReservationForm({
     beachFeeInfo.beach?.billing === 'flat' ||
     beachFeeInfo.beach?.mode === 'flat' ||
     beachFeeInfo.beach?.mode === 'free';
-  const currencyCode = form.currency === 'USD' ? 'USD' : 'EGP';
-  const usdRate = currencyCode === 'USD' ? Number(form.exchange_rate) || 0 : 1;
+  const currencyCode = ['EGP', 'USD', 'EUR', 'GBP', 'SAR', 'AED', 'KWD', 'QAR'].includes(
+    String(form.currency || '').toUpperCase()
+  )
+    ? String(form.currency).toUpperCase()
+    : 'EGP';
+  const fxRate = currencyCode !== 'EGP' ? Number(form.exchange_rate) || 0 : 1;
   const formMoney = (value) =>
     `${currencyCode} ${Number(value || 0).toLocaleString('en-EG', {
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     })}`;
   // Beach access is priced in EGP; show it in the reservation currency.
-  const beachInCurrency = usdRate > 0 ? beachAccessFees / usdRate : 0;
+  const beachInCurrency = fxRate > 0 ? beachAccessFees / fxRate : 0;
   const total = Number(form.total_amount) || 0;
   const downPayment = Number(form.down_payment) || 0;
   const insurance = Number(form.insurance) || 0;
@@ -425,7 +429,7 @@ export default function ManualReservationForm({
               <div className="flex items-center justify-between gap-3">
                 <span className="font-semibold text-[#0f1c2e]">Beach access</span>
                 <strong className="tabular-nums text-[#0f1c2e]">
-                  {currencyCode === 'USD'
+                  {currencyCode !== 'EGP'
                     ? `${formMoney(beachInCurrency)} (${money(beachAccessFees)})`
                     : money(beachAccessFees)}
                 </strong>
@@ -702,9 +706,9 @@ export default function ManualReservationForm({
               <span className="font-semibold text-[#0f1c2e]">Still to collect</span>
               <strong className="text-base text-[#1e5fbf]">{formMoney(toCollect)}</strong>
             </div>
-            {currencyCode === 'USD' && usdRate > 0 && fullBill > 0 && (
+            {currencyCode !== 'EGP' && fxRate > 0 && fullBill > 0 && (
               <p className="mt-2 text-right text-xs text-[#5b6b80]">
-                ≈ {money(fullBill * usdRate)} at {usdRate} EGP / USD
+                ≈ {money(fullBill * fxRate)} at {fxRate} EGP / {currencyCode}
               </p>
             )}
           </div>

@@ -7,6 +7,14 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { useAuth } from '../context/AuthContext';
 import { currency } from '../utils/formatters';
 import { OpsDateRangeFilter, formatOpsDay } from '../components/OpsDateRangeFilter';
+import ReservationCurrencyPicker from '../components/ReservationCurrencyPicker';
+import {
+  foreignFromEgp,
+  MONEY_CURRENCIES,
+  reservationCurrencyCode,
+  reservationMoney,
+  reservationRate,
+} from '../utils/reservationCurrency';
 
 function MoneyLine({ label, value, emphasize = false, showZero = false }) {
   if (value == null || (!showZero && Number(value) === 0)) return null;
@@ -67,16 +75,24 @@ function PaymentDetails({ row }) {
       <div className="flex justify-between gap-3 border-t pt-1 mt-1">
         <span className="text-gray-500">Total (full bill)</span>
         <span className="font-medium tabular-nums">
-          {currency(
-            Number(b.full_bill_total ?? b.total_amount ?? row.total_amount) || 0
+          {reservationMoney(
+            Number(b.full_bill_total ?? b.total_amount ?? row.total_amount) || 0,
+            row
           )}
         </span>
       </div>
       <div className="flex justify-between gap-3">
         <span className="text-gray-500">Paid</span>
-        <span className="font-medium tabular-nums text-emerald-700">{currency(row.amount_paid)}</span>
+        <span className="font-medium tabular-nums text-emerald-700">
+          {reservationMoney(row.amount_paid, row)}
+        </span>
       </div>
-      <MoneyLine label="To collect" value={remaining} emphasize />
+      <div className={`flex justify-between gap-3 border-t pt-1 font-semibold`}>
+        <span className="text-amber-800">To collect</span>
+        <span className="tabular-nums text-amber-900 font-bold">
+          {reservationMoney(remaining, row)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -145,6 +161,7 @@ function CollectPaymentMethods({
   instapayDraft,
   onCashChange,
   onInstapayChange,
+  currencyCode = 'EGP',
 }) {
   return (
     <>
@@ -159,7 +176,7 @@ function CollectPaymentMethods({
       {isSplit ? (
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="text-[10px] uppercase text-gray-500">Cash</label>
+            <label className="text-[10px] uppercase text-gray-500">Cash ({currencyCode})</label>
             <input
               type="number"
               min={0}
@@ -170,7 +187,7 @@ function CollectPaymentMethods({
             />
           </div>
           <div>
-            <label className="text-[10px] uppercase text-gray-500">InstaPay</label>
+            <label className="text-[10px] uppercase text-gray-500">InstaPay ({currencyCode})</label>
             <input
               type="number"
               min={0}
@@ -198,6 +215,7 @@ export function CheckinsTodaySection({ embedded = false }) {
   const [instapayDrafts, setInstapayDrafts] = useState({});
   const [commentDrafts, setCommentDrafts] = useState({});
   const [collectCommentDrafts, setCollectCommentDrafts] = useState({});
+  const [collectCurrencyDrafts, setCollectCurrencyDrafts] = useState({});
   const isSupervisor =
     user?.role === 'admin' || user?.role === 'operations_supervisor';
   const isAgent = user?.role === 'operations';
@@ -232,6 +250,8 @@ export function CheckinsTodaySection({ embedded = false }) {
       instapay_amount,
       bill,
       comment,
+      currency: collectCurrency,
+      exchange_rate,
     }) =>
       api.post(`/ops/checkins-today/${id}/collect`, {
         collect_mode,
@@ -241,6 +261,8 @@ export function CheckinsTodaySection({ embedded = false }) {
         instapay_amount,
         bill,
         comment,
+        currency: collectCurrency,
+        exchange_rate,
       }),
     onSuccess: () => {
       toast.success('Money marked as collected');
@@ -275,12 +297,22 @@ export function CheckinsTodaySection({ embedded = false }) {
     setCollectModes((prev) => ({ ...prev, [row.id]: 'full' }));
     setBillDrafts((prev) => ({ ...prev, [row.id]: seedBillDraft(row) }));
     setMethodDrafts((prev) => ({ ...prev, [row.id]: prev[row.id] || 'cash' }));
-    const remaining = Number(row.remaining_amount) || 0;
-    const half = Math.round(remaining * 50) / 100;
+    const code = reservationCurrencyCode(row);
+    const rate = reservationRate(row);
+    setCollectCurrencyDrafts((prev) => ({
+      ...prev,
+      [row.id]: {
+        currency: code,
+        exchange_rate: code === 'EGP' ? '' : String(rate),
+      },
+    }));
+    const remainingEgp = Number(row.remaining_amount) || 0;
+    const remainingForeign = foreignFromEgp(remainingEgp, code === 'EGP' ? 1 : rate);
+    const half = Math.round(remainingForeign * 50) / 100;
     setCashDrafts((prev) => ({ ...prev, [row.id]: String(half) }));
     setInstapayDrafts((prev) => ({
       ...prev,
-      [row.id]: String(Math.round((remaining - half) * 100) / 100),
+      [row.id]: String(Math.round((remainingForeign - half) * 100) / 100),
     }));
   };
 
@@ -291,6 +323,17 @@ export function CheckinsTodaySection({ embedded = false }) {
       ...prev,
       [id]: String(Math.round(((Number(total) || 0) - half) * 100) / 100),
     }));
+  };
+
+  const collectFx = (row) => {
+    const draft = collectCurrencyDrafts[row.id] || {
+      currency: reservationCurrencyCode(row),
+      exchange_rate: '',
+    };
+    const code = String(draft.currency || 'EGP').toUpperCase();
+    const rate =
+      code === 'EGP' ? 1 : Number(draft.exchange_rate) > 0 ? Number(draft.exchange_rate) : reservationRate(row);
+    return { currency: code, exchange_rate: rate };
   };
 
   if (isLoading) return <LoadingSpinner />;
@@ -359,14 +402,18 @@ export function CheckinsTodaySection({ embedded = false }) {
             </thead>
             <tbody>
               {rows.map((r) => {
-                const remaining = Number(r.remaining_amount) || 0;
+                const remainingEgp = Number(r.remaining_amount) || 0;
                 const paid = Number(r.amount_paid) || 0;
                 const mode = collectModes[r.id] || 'full';
                 const isCustom = mode === 'custom';
                 const billDraft = billDrafts[r.id] || seedBillDraft(r);
                 const finalBill = Math.round(sumBillDraft(billDraft) * 100) / 100;
-                const customRemaining = Math.max(0, Math.round((finalBill - paid) * 100) / 100);
-                const collectAmount = isCustom ? customRemaining : remaining;
+                const customRemainingEgp = Math.max(0, Math.round((finalBill - paid) * 100) / 100);
+                const collectAmountEgp = isCustom ? customRemainingEgp : remainingEgp;
+                const fx = collectFx(r);
+                const collectAmount = foreignFromEgp(collectAmountEgp, fx.exchange_rate);
+                const remaining = remainingEgp;
+                const customRemaining = customRemainingEgp;
                 const method = methodDrafts[r.id] || 'cash';
                 const isSplit = method === 'split';
                 const cashDraft =
@@ -413,7 +460,7 @@ export function CheckinsTodaySection({ embedded = false }) {
                           <CheckCircle2 className="w-4 h-4" />
                           Collected
                           {r.ops_money_collected_amount > 0
-                            ? ` (${currency(r.ops_money_collected_amount)})`
+                            ? ` (${reservationMoney(r.ops_money_collected_amount, r)})`
                             : remaining <= 0.5
                               ? ' (already paid)'
                               : ''}
@@ -433,6 +480,45 @@ export function CheckinsTodaySection({ embedded = false }) {
                           </label>
                           {collectingId === r.id ? (
                             <div className="space-y-2.5 rounded-lg border bg-gray-50 p-2.5">
+                              <ReservationCurrencyPicker
+                                form={
+                                  collectCurrencyDrafts[r.id] || {
+                                    currency: reservationCurrencyCode(r),
+                                    exchange_rate:
+                                      reservationCurrencyCode(r) === 'EGP'
+                                        ? ''
+                                        : String(reservationRate(r)),
+                                  }
+                                }
+                                setForm={(updater) => {
+                                  setCollectCurrencyDrafts((prev) => {
+                                    const cur =
+                                      prev[r.id] || {
+                                        currency: reservationCurrencyCode(r),
+                                        exchange_rate:
+                                          reservationCurrencyCode(r) === 'EGP'
+                                            ? ''
+                                            : String(reservationRate(r)),
+                                      };
+                                    const next = typeof updater === 'function' ? updater(cur) : updater;
+                                    const nextRate =
+                                      next.currency === 'EGP'
+                                        ? 1
+                                        : Number(next.exchange_rate) > 0
+                                          ? Number(next.exchange_rate)
+                                          : reservationRate(r);
+                                    const nextCollect = foreignFromEgp(
+                                      isCustom ? customRemainingEgp : remainingEgp,
+                                      nextRate
+                                    );
+                                    syncSplitForAmount(r.id, nextCollect);
+                                    return { ...prev, [r.id]: next };
+                                  });
+                                }}
+                                currencies={MONEY_CURRENCIES}
+                                inputClass="input text-sm py-1.5"
+                                labelClass="text-[10px] uppercase text-gray-500"
+                              />
                               <div className="grid grid-cols-2 gap-1.5">
                                 <button
                                   type="button"
@@ -443,7 +529,7 @@ export function CheckinsTodaySection({ embedded = false }) {
                                   }`}
                                   onClick={() => {
                                     setCollectModes((prev) => ({ ...prev, [r.id]: 'full' }));
-                                    syncSplitForAmount(r.id, remaining);
+                                    syncSplitForAmount(r.id, foreignFromEgp(remainingEgp, fx.exchange_rate));
                                   }}
                                 >
                                   Full amount
@@ -459,11 +545,14 @@ export function CheckinsTodaySection({ embedded = false }) {
                                     setCollectModes((prev) => ({ ...prev, [r.id]: 'custom' }));
                                     const seeded = billDrafts[r.id] || seedBillDraft(r);
                                     setBillDrafts((prev) => ({ ...prev, [r.id]: seeded }));
-                                    const nextRemaining = Math.max(
+                                    const nextRemainingEgp = Math.max(
                                       0,
                                       Math.round((sumBillDraft(seeded) - paid) * 100) / 100
                                     );
-                                    syncSplitForAmount(r.id, nextRemaining);
+                                    syncSplitForAmount(
+                                      r.id,
+                                      foreignFromEgp(nextRemainingEgp, fx.exchange_rate)
+                                    );
                                   }}
                                 >
                                   Custom bill
@@ -480,11 +569,16 @@ export function CheckinsTodaySection({ embedded = false }) {
                                           ...(prev[r.id] || seedBillDraft(r)),
                                           [key]: value,
                                         };
-                                        const nextRemaining = Math.max(
+                                        const nextRemainingEgp = Math.max(
                                           0,
                                           Math.round((sumBillDraft(next) - paid) * 100) / 100
                                         );
-                                        if (isSplit) syncSplitForAmount(r.id, nextRemaining);
+                                        if (isSplit) {
+                                          syncSplitForAmount(
+                                            r.id,
+                                            foreignFromEgp(nextRemainingEgp, fx.exchange_rate)
+                                          );
+                                        }
                                         return { ...prev, [r.id]: next };
                                       });
                                     }}
@@ -503,9 +597,17 @@ export function CheckinsTodaySection({ embedded = false }) {
                                       </span>
                                     </div>
                                     <div className="flex justify-between gap-2 font-semibold text-amber-900">
-                                      <span>To collect</span>
-                                      <span className="tabular-nums">{currency(customRemaining)}</span>
+                                      <span>To collect ({fx.currency})</span>
+                                      <span className="tabular-nums">
+                                        {currency(collectAmount, fx.currency)}
+                                      </span>
                                     </div>
+                                    {fx.currency !== 'EGP' ? (
+                                      <div className="flex justify-between gap-2 text-gray-500">
+                                        <span>≈ EGP</span>
+                                        <span className="tabular-nums">{currency(customRemainingEgp)}</span>
+                                      </div>
+                                    ) : null}
                                   </div>
                                   <label className="block text-xs space-y-1">
                                     <span className="text-gray-600 font-medium">
@@ -528,8 +630,11 @@ export function CheckinsTodaySection({ embedded = false }) {
                                 <div className="text-xs text-gray-700">
                                   Collect full remaining:{' '}
                                   <span className="font-semibold tabular-nums text-amber-900">
-                                    {currency(remaining)}
+                                    {currency(collectAmount, fx.currency)}
                                   </span>
+                                  {fx.currency !== 'EGP' ? (
+                                    <span className="text-gray-500"> (≈ {currency(remainingEgp)})</span>
+                                  ) : null}
                                 </div>
                               )}
 
@@ -548,6 +653,7 @@ export function CheckinsTodaySection({ embedded = false }) {
                                 onInstapayChange={(v) =>
                                   setInstapayDrafts((prev) => ({ ...prev, [r.id]: v }))
                                 }
+                                currencyCode={fx.currency}
                               />
 
                               <button
@@ -558,6 +664,10 @@ export function CheckinsTodaySection({ embedded = false }) {
                                   const amount = Number(collectAmount);
                                   if (!Number.isFinite(amount) || amount < 0) {
                                     toast.error('Invalid collect amount');
+                                    return;
+                                  }
+                                  if (fx.currency !== 'EGP' && !(fx.exchange_rate > 0)) {
+                                    toast.error(`Enter the ${fx.currency} exchange rate (EGP per 1 ${fx.currency})`);
                                     return;
                                   }
                                   if (isCustom && finalBill + 0.5 < paid) {
@@ -579,6 +689,11 @@ export function CheckinsTodaySection({ embedded = false }) {
                                       )
                                     : undefined;
 
+                                  const fxPayload = {
+                                    currency: fx.currency,
+                                    exchange_rate: fx.currency === 'EGP' ? 1 : fx.exchange_rate,
+                                  };
+
                                   if (isSplit) {
                                     const cash = Number(cashDraft) || 0;
                                     const instapay = Number(instapayDraft) || 0;
@@ -598,6 +713,7 @@ export function CheckinsTodaySection({ embedded = false }) {
                                       instapay_amount: instapay,
                                       bill,
                                       comment: comment || undefined,
+                                      ...fxPayload,
                                     });
                                     return;
                                   }
@@ -608,11 +724,14 @@ export function CheckinsTodaySection({ embedded = false }) {
                                     payment_method: method,
                                     bill,
                                     comment: comment || undefined,
+                                    ...fxPayload,
                                   });
                                 }}
                               >
                                 Confirm collect
-                                {collectAmount > 0 ? ` · ${currency(collectAmount)}` : ''}
+                                {collectAmount > 0
+                                  ? ` · ${currency(collectAmount, fx.currency)}`
+                                  : ''}
                               </button>
                             </div>
                           ) : null}

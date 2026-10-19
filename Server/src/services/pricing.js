@@ -93,10 +93,12 @@ async function getDailyPriceMap(wpPostId, from, to) {
 
 async function computeFees(unit, { nights, subtotal, adults = 1, teens = 0 }) {
   const { computeBeachAccessFee } = require('../lib/beachAccess');
+  const { GUEST_SERVICE_FEE_PCT } = require('../lib/commission');
   const { fee: access, beach } = await computeBeachAccessFee(unit, { nights, adults, teens });
 
-  const servicePct = 15;
-  const service = Math.round(Number(subtotal || 0) * (servicePct / 100));
+  const servicePct = Number(GUEST_SERVICE_FEE_PCT) || 0;
+  const service =
+    servicePct > 0 ? Math.round(Number(subtotal || 0) * (servicePct / 100)) : 0;
   const deposit = Number(unit?.security_deposit_egp || 0);
   const lines = [];
   if (access > 0) lines.push({ key: 'access', label: 'Access cards', amount: access });

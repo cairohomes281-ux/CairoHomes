@@ -79,7 +79,7 @@ function computeTotal(row, nights) {
   const stay = nightly > 0 ? nightly * nights : 0;
   const beach = num(row['Beach Pass Total']);
   const ins = num(row.Insurance);
-  const service = stay > 0 ? Math.round(stay * 0.15) : 0;
+  const service = 0;
   const computed = stay + beach + ins + service;
   return computed > 0 ? Math.round(computed * 100) / 100 : 0;
 }

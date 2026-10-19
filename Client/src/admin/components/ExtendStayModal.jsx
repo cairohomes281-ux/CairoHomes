@@ -56,7 +56,7 @@ export default function ExtendStayModal({ open, onClose, reservation }) {
   const nightly = Number(price);
   const checkOut = currentCheckout && extra > 0 ? addDays(currentCheckout, extra) : '';
   const added = extra > 0 && nightly > 0 ? Math.round(extra * nightly * 100) / 100 : 0;
-  const nightlyStored = currencyCode === 'USD' ? nightly * rate : nightly;
+  const nightlyStored = currencyCode !== 'EGP' ? nightly * rate : nightly;
   const addedStored = extra > 0 && nightlyStored > 0 ? Math.round(extra * nightlyStored * 100) / 100 : 0;
   const oldTotal = Number(reservation?.total_amount) || 0;
   const newTotalStored = addedStored > 0 ? Math.round((oldTotal + addedStored) * 100) / 100 : oldTotal;

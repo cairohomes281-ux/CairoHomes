@@ -124,7 +124,11 @@ function reservationFullBill(r) {
 export function ReservationForm({ form, setForm, units, users, isNew, transferProof, onTransferProofChange, editId, allowPastDates, lockSalesPerson = false, currentUserName = '' }) {
   
   const selectedUnit = units.find(u => String(u.id) === String(form.unit_id));
-  const cur = form.currency === 'USD' ? 'USD' : 'EGP';
+  const cur = ['EGP', 'USD', 'EUR', 'GBP', 'SAR', 'AED', 'KWD', 'QAR'].includes(
+    String(form.currency || '').toUpperCase()
+  )
+    ? String(form.currency).toUpperCase()
+    : 'EGP';
 
   useEffect(() => {
     if (selectedUnit && isNew && !form.price_per_night) {
@@ -482,7 +486,7 @@ function PaymentForm({ form, setForm, onFileChange, currencyCode = 'EGP', rate =
         <div>
           <label className="label">Amount ({currencyCode}) *</label>
           <input type="number" min="0" step="0.01" className="input" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
-          {currencyCode === 'USD' && Number(form.amount) > 0 && (
+          {currencyCode !== 'EGP' && Number(form.amount) > 0 && (
             <p className="mt-1 text-xs text-gray-500">≈ {currency(Number(form.amount) * rate)} saved for finance</p>
           )}
         </div>

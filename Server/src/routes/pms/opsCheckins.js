@@ -174,11 +174,15 @@ function paymentBreakdown(row) {
   }
 
   let serviceFees = 0;
-  let serviceFeePercent = 15;
+  const { GUEST_SERVICE_FEE_PCT } = require('../../lib/commission');
+  let serviceFeePercent = Number(GUEST_SERVICE_FEE_PCT) || 0;
   let securityDeposit = Number(row.security_deposit_egp) || 0;
   try {
     const subtotal = accommodation > 0 ? accommodation : Number(row.total_amount) || 0;
-    serviceFees = Math.round(Number(subtotal || 0) * (serviceFeePercent / 100));
+    serviceFees =
+      serviceFeePercent > 0
+        ? Math.round(Number(subtotal || 0) * (serviceFeePercent / 100))
+        : 0;
   } catch {}
 
   const parts = {
@@ -268,6 +272,8 @@ function mapCheckin(row) {
     total_amount: billTotal,
     amount_paid: Number(row.amount_paid) || 0,
     remaining_amount: remaining,
+    currency: String(row.currency || 'EGP').toUpperCase(),
+    exchange_rate: Number(row.exchange_rate) > 0 ? Number(row.exchange_rate) : 1,
     payment_status: row.payment_status,
     payment_method: row.payment_method,
     payment_breakdown: breakdown,
@@ -440,17 +446,38 @@ router.post(
         return res.json(mapCheckin(updated));
       }
 
-      // Full / custom both collect the full remaining after any bill edit.
-      let amount = remaining;
-      if (collectMode === 'full') {
-        const requested = Number(req.body?.amount);
-        if (Number.isFinite(requested) && requested > 0) {
-          amount = Math.round(requested * 100) / 100;
-        }
+      // Collect amounts may be typed in any supported currency; balances stay in EGP.
+      const { parseMoneyCurrency, toEgp, fromEgp } = require('../../lib/currencies');
+      let money;
+      try {
+        money = parseMoneyCurrency(
+          {
+            currency: req.body?.currency || 'EGP',
+            exchange_rate: req.body?.exchange_rate,
+          },
+          { required: true }
+        );
+      } catch (err) {
+        if (err.status === 400) return res.status(400).json({ error: err.message });
+        throw err;
       }
-      amount = Math.round(amount * 100) / 100;
-      if (amount > remaining + 0.5) {
-        return res.status(400).json({ error: `Amount cannot exceed remaining EGP ${remaining}` });
+      const rate = money.exchange_rate;
+      const collectCurrency = money.currency;
+
+      // `amount` from the client is in the chosen collect currency (defaults to remaining).
+      let amountForeign = fromEgp(remaining, rate);
+      const requested = Number(req.body?.amount);
+      if (Number.isFinite(requested) && requested > 0) {
+        amountForeign = Math.round(requested * 100) / 100;
+      }
+      amountForeign = Math.round(amountForeign * 100) / 100;
+      let amountEgp = toEgp(amountForeign, rate);
+      if (amountEgp > remaining + 0.5) {
+        return res.status(400).json({
+          error: `Amount cannot exceed remaining EGP ${remaining}${
+            collectCurrency === 'EGP' ? '' : ` (about ${fromEgp(remaining, rate)} ${collectCurrency})`
+          }`,
+        });
       }
 
       const splits = [];
@@ -460,45 +487,72 @@ router.post(
         (Number.isFinite(cashAmt) && cashAmt > 0) || (Number.isFinite(instapayAmt) && instapayAmt > 0);
 
       if (hasSplit) {
-        const cash = Number.isFinite(cashAmt) && cashAmt > 0 ? Math.round(cashAmt * 100) / 100 : 0;
+        const cash =
+          Number.isFinite(cashAmt) && cashAmt > 0 ? Math.round(cashAmt * 100) / 100 : 0;
         const instapay =
           Number.isFinite(instapayAmt) && instapayAmt > 0 ? Math.round(instapayAmt * 100) / 100 : 0;
-        if (cash > 0) splits.push({ amount: cash, payment_method: 'cash' });
-        if (instapay > 0) splits.push({ amount: instapay, payment_method: 'instapay' });
-        const splitTotal = Math.round((cash + instapay) * 100) / 100;
-        if (Math.abs(splitTotal - amount) > 0.05) {
-          return res.status(400).json({
-            error: `Cash + InstaPay (EGP ${splitTotal}) must equal the collected amount (EGP ${amount})`,
+        if (cash > 0) {
+          splits.push({
+            amount_original: cash,
+            amount: toEgp(cash, rate),
+            payment_method: 'cash',
           });
         }
-        if (splitTotal > remaining + 0.5) {
+        if (instapay > 0) {
+          splits.push({
+            amount_original: instapay,
+            amount: toEgp(instapay, rate),
+            payment_method: 'instapay',
+          });
+        }
+        const splitForeign = Math.round((cash + instapay) * 100) / 100;
+        if (Math.abs(splitForeign - amountForeign) > 0.05) {
+          return res.status(400).json({
+            error: `Cash + InstaPay (${collectCurrency} ${splitForeign}) must equal the collected amount (${collectCurrency} ${amountForeign})`,
+          });
+        }
+        amountForeign = splitForeign;
+        amountEgp = toEgp(amountForeign, rate);
+        if (amountEgp > remaining + 0.5) {
           return res.status(400).json({ error: `Amount cannot exceed remaining EGP ${remaining}` });
         }
-        amount = splitTotal;
       } else {
         let method = String(req.body?.payment_method || 'cash').toLowerCase();
         if (!['cash', 'instapay', 'bank_transfer'].includes(method)) method = 'cash';
-        splits.push({ amount, payment_method: method });
+        splits.push({
+          amount_original: amountForeign,
+          amount: amountEgp,
+          payment_method: method,
+        });
       }
 
       const noteBase = collectComment
         ? `[ops check-in] ${collectComment}`
         : `[ops check-in] Collected at door by ${req.user.full_name || req.user.username || req.user.id}`;
+      const fxNote =
+        collectCurrency === 'EGP'
+          ? ''
+          : ` · ${collectCurrency} ${amountForeign} @ ${rate} EGP`;
       for (const part of splits) {
         await query(
           `INSERT INTO payments (
              reservation_id, amount, payment_date, payment_method,
-             notes, created_by, status, is_approved, approved_by, approved_at, paid_at
+             notes, created_by, status, is_approved, approved_by, approved_at, paid_at,
+             currency, amount_original, exchange_rate
            ) VALUES (
              $1, $2, CURRENT_DATE, $3,
-             $4, $5, 'successful', 1, $5, now(), now()
+             $4, $5, 'successful', 1, $5, now(), now(),
+             $6, $7, $8
            )`,
           [
             reservationId,
             part.amount,
             part.payment_method,
-            splits.length > 1 ? `${noteBase} Â· ${part.payment_method} share` : noteBase,
+            `${splits.length > 1 ? `${noteBase} · ${part.payment_method} share` : noteBase}${fxNote}`,
             req.user.id,
+            collectCurrency,
+            part.amount_original,
+            rate,
           ]
         );
       }
@@ -513,7 +567,7 @@ router.post(
            ops_money_collected_amount = COALESCE(ops_money_collected_amount, 0) + $3,
            updated_at = now()
          WHERE id = $1`,
-        [reservationId, req.user.id, amount]
+        [reservationId, req.user.id, amountEgp]
       );
 
       if (billApplied) {
@@ -533,10 +587,14 @@ router.post(
         entityId: reservationId,
         details: {
           collect_mode: collectMode,
-          amount,
+          amount_egp: amountEgp,
+          amount_original: amountForeign,
+          currency: collectCurrency,
+          exchange_rate: rate,
           comment: collectComment || null,
           splits: splits.map((s) => ({
-            amount: s.amount,
+            amount_egp: s.amount,
+            amount_original: s.amount_original,
             payment_method: s.payment_method,
           })),
         },
