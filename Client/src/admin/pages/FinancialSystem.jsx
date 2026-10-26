@@ -41,7 +41,9 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Modal from '../components/ui/Modal';
-import { currency, formatDate, formatDateTime } from '../utils/formatters';
+import { formatDate, formatDateTime } from '../utils/formatters';
+import { moneyUsd as currency, setDisplayEgpPerUsd, egpToUsd, usdToEgp } from '../utils/usdMoney';
+import { useCurrency } from '../../context/CurrencyContext';
 import { FINANCIAL_EPOCH } from '../utils/financialEpoch';
 import { ACCOUNT_GROUPS, CHART_OF_ACCOUNTS, getAccount } from '../../lib/finance/chartOfAccounts';
 import { VAT_OUTPUT_PCT, WHT_STANDARD_PCT, WHT_REDUCED_PCT } from '../../lib/finance/taxEngine';
@@ -886,7 +888,7 @@ function RecurringTool() {
         {(Array.isArray(data) ? data : []).map((row) => {
           const Icon = icons[row.kind] || Settings2;
           const draft = drafts[row.kind] || {
-            amount_egp: row.amount_egp,
+            amount_egp: egpToUsd(row.amount_egp),
             day_of_month: row.day_of_month,
           };
           return (
@@ -928,7 +930,7 @@ function RecurringTool() {
                 onClick={() =>
                   save.mutate({
                     kind: row.kind,
-                    amount_egp: draft.amount_egp,
+                    amount_egp: usdToEgp(draft.amount_egp),
                     day_of_month: draft.day_of_month,
                   })
                 }
@@ -1130,7 +1132,7 @@ function OwnerStatementsTab({ fromDate, toDate, rangeParams: params }) {
   function openSettle(owner) {
     setSettleOwner(owner);
     setSettleAmount(
-      owner.remaining != null && owner.remaining > 0 ? String(owner.remaining) : ''
+      owner.remaining != null && owner.remaining > 0 ? String(egpToUsd(owner.remaining)) : ''
     );
     setSettleNotes('');
   }
@@ -1329,7 +1331,7 @@ function OwnerStatementsTab({ fromDate, toDate, rangeParams: params }) {
               onClick={() =>
                 settleOwnerMutation.mutate({
                   ownerId: settleOwner.owner_id,
-                  amount: parseFloat(settleAmount),
+                  amount: usdToEgp(parseFloat(settleAmount)),
                   notes: settleNotes || undefined,
                 })
               }
@@ -1516,7 +1518,7 @@ function ManualEntriesTab({ fromDate, toDate, rangeParams: params }) {
               entry_type: 'journal',
               from_account: form.from_account,
               to_account: form.to_account,
-              amount: parseFloat(form.amount),
+              amount: usdToEgp(parseFloat(form.amount)),
               entry_date: form.entry_date,
               notes: form.notes.trim() || undefined,
             });
@@ -1782,10 +1784,10 @@ function CashFlowSection({ cf, fromDate, toDate }) {
                     <span className="text-[10px] text-gray-400 ml-1">({a.currency})</span>
                   ) : null}
                 </td>
-                <td className="text-right tabular-nums">{currency(a.opening)}</td>
-                <td className="text-right tabular-nums text-emerald-700">{currency(a.inflows)}</td>
-                <td className="text-right tabular-nums text-rose-700">{currency(a.outflows)}</td>
-                <td className="text-right tabular-nums font-medium">{currency(a.closing)}</td>
+                <td className="text-right tabular-nums">{currency(a.opening, a.currency)}</td>
+                <td className="text-right tabular-nums text-emerald-700">{currency(a.inflows, a.currency)}</td>
+                <td className="text-right tabular-nums text-rose-700">{currency(a.outflows, a.currency)}</td>
+                <td className="text-right tabular-nums font-medium">{currency(a.closing, a.currency)}</td>
               </tr>
             ))}
           </tbody>
@@ -2812,7 +2814,7 @@ function InsuranceRefundsTool({ onOpenAccount }) {
   });
 
   function openSettle(row) {
-    const held = Number(row.insurance) || 0;
+    const held = egpToUsd(Number(row.insurance) || 0);
     setSettleRow(row);
     setRefundedAmount(String(held));
     setDamageAmount('0');
@@ -2824,7 +2826,7 @@ function InsuranceRefundsTool({ onOpenAccount }) {
   function onDamageChange(value) {
     setDamageAmount(value);
     if (!settleRow) return;
-    const held = Number(settleRow.insurance) || 0;
+    const held = egpToUsd(Number(settleRow.insurance) || 0);
     const dmg = Math.max(0, parseFloat(value) || 0);
     setRefundedAmount(String(Math.max(0, Math.round((held - dmg) * 100) / 100)));
   }
@@ -2832,7 +2834,7 @@ function InsuranceRefundsTool({ onOpenAccount }) {
   function onRefundChange(value) {
     setRefundedAmount(value);
     if (!settleRow) return;
-    const held = Number(settleRow.insurance) || 0;
+    const held = egpToUsd(Number(settleRow.insurance) || 0);
     const ref = Math.max(0, parseFloat(value) || 0);
     setDamageAmount(String(Math.max(0, Math.round((held - ref) * 100) / 100)));
   }
@@ -3012,8 +3014,6 @@ function InsuranceRefundsTool({ onOpenAccount }) {
                   <option value="cash">{t('pms.fin.insurance.cashMethod')}</option>
                   <option value="instapay">{t('pms.fin.insurance.instapayMethod')}</option>
                   <option value="visa">{t('pms.fin.insurance.visaMethod')}</option>
-                  <option value="bank_transfer">{t('pms.fin.insurance.bankTransferMethod')}</option>
-                  <option value="credit_card">{t('pms.fin.insurance.cardMethod')}</option>
                 </select>
               </div>
               <div>
@@ -3047,8 +3047,8 @@ function InsuranceRefundsTool({ onOpenAccount }) {
                   settle.mutate({
                     id: settleRow.reservation_id,
                     body: {
-                      refunded_amount: parseFloat(refundedAmount) || 0,
-                      damage_amount: parseFloat(damageAmount) || 0,
+                      refunded_amount: usdToEgp(parseFloat(refundedAmount) || 0),
+                      damage_amount: usdToEgp(parseFloat(damageAmount) || 0),
                       payment_method: method,
                       refunded_at: refundDate,
                       notes: notes || undefined,
@@ -3427,7 +3427,7 @@ function CashForecastTool({ rangeParams: params }) {
           <>
             <button type="button" className="btn-secondary" onClick={() => setEditWeek(null)}>{t('pms.fin.cancel')}</button>
             <button type="button" className="btn-primary" disabled={addEntry.isPending}
-              onClick={() => addEntry.mutate({ week_start: editWeek, category: editForm.category, amount: parseFloat(editForm.amount), notes: editForm.notes || undefined })}>
+              onClick={() => addEntry.mutate({ week_start: editWeek, category: editForm.category, amount: usdToEgp(parseFloat(editForm.amount)), notes: editForm.notes || undefined })}>
               {t('pms.fin.forecast.add')}
             </button>
           </>
@@ -3672,7 +3672,7 @@ function OwnerTrustTool({ rangeParams: params }) {
             type="button"
             className="btn-primary"
             disabled={addHb.isPending}
-            onClick={() => addHb.mutate({ owner_id: parseInt(form.owner_id, 10), amount: parseFloat(form.amount), reason: form.reason })}
+            onClick={() => addHb.mutate({ owner_id: parseInt(form.owner_id, 10), amount: usdToEgp(parseFloat(form.amount)), reason: form.reason })}
           >
             {t('pms.fin.trust.holdBack')}
           </button>
@@ -3780,7 +3780,7 @@ function VendorsTool({ rangeParams: params }) {
     onError: (e) => toast.error(e.response?.data?.error || t('pms.fin.failed')),
   });
   const payInv = useMutation({
-    mutationFn: (id) => api.post(`/financial-system/vendor-invoices/${id}/pay`, { payment_method: 'bank_transfer' }),
+    mutationFn: (id) => api.post(`/financial-system/vendor-invoices/${id}/pay`, { payment_method: 'instapay' }),
     onSuccess: () => { toast.success(t('pms.fin.vendors.markedPaid')); qc.invalidateQueries({ queryKey: ['financial-system-vendor-invoices'] }); qc.invalidateQueries({ queryKey: ['financial-system-vendors'] }); },
     onError: (e) => toast.error(e.response?.data?.error || t('pms.fin.failed')),
   });
@@ -4037,7 +4037,7 @@ function VendorsTool({ rangeParams: params }) {
                 vendor_id: parseInt(invForm.vendor_id, 10),
                 invoice_number: invForm.invoice_number || undefined,
                 invoice_date: invForm.invoice_date,
-                amount: parseFloat(invForm.amount),
+                amount: usdToEgp(parseFloat(invForm.amount)),
                 description: invForm.description || undefined,
                 category: invForm.category || undefined,
                 notes: invForm.notes || undefined,
@@ -4658,7 +4658,7 @@ function ArControlsTool({ rangeParams: params }) {
               e.preventDefault();
               createWo.mutate({
                 reservation_id: parseInt(woForm.reservation_id, 10),
-                amount: parseFloat(woForm.amount),
+                amount: usdToEgp(parseFloat(woForm.amount)),
                 reason: woForm.reason || undefined,
               });
             }}>
@@ -4855,8 +4855,8 @@ function FixedAssetsTool() {
                   name: form.name.trim(),
                   category: form.category,
                   purchase_date: form.purchase_date,
-                  purchase_cost: parseFloat(form.purchase_cost),
-                  salvage_value: parseFloat(form.salvage_value) || 0,
+                  purchase_cost: usdToEgp(parseFloat(form.purchase_cost)),
+                  salvage_value: usdToEgp(parseFloat(form.salvage_value) || 0),
                   useful_life_months: parseInt(form.useful_life_months, 10) || 36,
                   notes: form.notes.trim() || undefined,
                 })
@@ -5033,6 +5033,8 @@ function FixedAssetsTool() {
 }
 
 function FinancialSystemInner() {
+  const { egpUsdRate } = useCurrency();
+  setDisplayEgpPerUsd(egpUsdRate);
   const { t, locale, toggleLocale, isRtl } = useFinLocale();
   const { view, group, code, txn, tool, go } = useFinanceNav();
   const [period, setPeriod] = useState(() => ({ ...monthBounds(cairoYearMonth()), basis: 'stay' }));
@@ -5120,7 +5122,7 @@ function FinancialSystemInner() {
     <div className="space-y-6" dir={isRtl ? 'rtl' : 'ltr'}>
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 mb-1">{t('pms.fin.companyBooks')}</p>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 mb-1">{t('pms.fin.companyBooks')} · USD</p>
           <h1 className="page-title flex items-center gap-2">
             <Landmark className="w-7 h-7 text-ch-pine" />
             {t('pms.fin.title')}

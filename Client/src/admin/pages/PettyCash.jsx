@@ -10,7 +10,9 @@ import ConfirmDialog from '../components/ui/ConfirmDialog';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import EmptyState from '../components/ui/EmptyState';
 import SortTh from '../components/ui/SortTh';
-import { currency, formatDate, unitDisplay, unitSelectLabel } from '../utils/formatters';
+import { formatDate, unitDisplay, unitSelectLabel } from '../utils/formatters';
+import { moneyUsd as currency, setDisplayEgpPerUsd } from '../utils/usdMoney';
+import { useCurrency } from '../../context/CurrencyContext';
 import { usePermissions } from '../hooks/usePermissions';
 import SearchableSelect from '../components/ui/SearchableSelect';
 
@@ -285,6 +287,8 @@ function EntryForm({ form, setForm, units, owners = [], ownerUnits = [], transfe
 }
 
 export function PettyCashSection({ embedded = false }) {
+  const { egpUsdRate } = useCurrency();
+  setDisplayEgpPerUsd(egpUsdRate);
   const qc = useQueryClient();
   const { can } = usePermissions();
   const { user } = useAuth();
@@ -926,7 +930,7 @@ export function PettyCashSection({ embedded = false }) {
               <label className="label">Payment Method</label>
               <SearchableSelect value={payMethod} onChange={setPayMethod}
                 placeholder="Payment Method…"
-                options={[{ value: 'cash', label: 'Cash' }, { value: 'bank_transfer', label: 'Bank Transfer' }, { value: 'credit_card', label: 'Credit Card' }, { value: 'check', label: 'Check' }]}
+                options={[{ value: 'cash', label: 'Cash' }, { value: 'instapay', label: 'InstaPay' }, { value: 'visa', label: 'Visa' }]}
               />
             </div>
           </div>

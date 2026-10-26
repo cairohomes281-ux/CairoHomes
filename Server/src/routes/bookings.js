@@ -1,16 +1,12 @@
 const express = require('express');
 const { query } = require('../config/db');
 const { quoteStay } = require('../services/pricing');
-const { initializePaymobCheckout } = require('../config/paymob');
 const { authGuest } = require('../middleware/auth');
+const { normalizePaymentMethod } = require('../lib/paymentMethods');
 const { isLongTermUnit } = require('../lib/listingType');
 const { upload, attachCloudinaryUrls } = require('../config/cloudinary');
 
 const router = express.Router();
-
-function merchantOrderId() {
-  return `TEMP_CH_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
 
 router.post('/checkout', authGuest, upload.array('id_photos', 10), attachCloudinaryUrls, async (req, res, next) => {
   try {
@@ -26,10 +22,9 @@ router.post('/checkout', authGuest, upload.array('id_photos', 10), attachCloudin
       guest_name,
       guest_email,
       guest_phone,
-      payment_method = 'paymob_card',
+      payment_method = 'instapay',
       notes,
       promo_code,
-      callback_url,
     } = req.body;
 
     const { rows: units } = await query(`SELECT * FROM units WHERE slug = $1 AND status = 'published'`, [slug]);
@@ -88,60 +83,8 @@ router.post('/checkout', authGuest, upload.array('id_photos', 10), attachCloudin
     }
 
     const photoUrls = (req.files || []).map((f) => f.path || f.secure_url).filter(Boolean);
+    const method = normalizePaymentMethod(payment_method, 'instapay');
 
-    if (payment_method === 'paymob_card' || payment_method === 'card') {
-      const orderId = merchantOrderId();
-      const payload = {
-        slug: unit.slug,
-        unit_id: unit.id,
-        listing_wp_id: unit.wp_post_id,
-        listing_title: unit.title,
-        checkin,
-        checkout,
-        guests: guestTotal,
-        adults: adultCount,
-        children: teenCount,
-        nanny_count: nannyCount,
-        guest_name,
-        guest_email,
-        guest_phone,
-        total_egp: total,
-        notes,
-        photo_urls: photoUrls,
-        user_id: req.guest?.id || null,
-        promo_code: promoApplied?.code || null,
-        amount_before_promo: quote.total_egp,
-      };
-
-      const paymob = await initializePaymobCheckout({
-        amountEgp: total,
-        merchantOrderId: orderId,
-        billing: {
-          email: guest_email,
-          phone: guest_phone,
-          firstName: String(guest_name || 'Guest').split(' ')[0],
-          lastName: String(guest_name || 'Cairo Homes').split(' ').slice(1).join(' ') || 'Guest',
-        },
-      });
-
-      await query(
-        `INSERT INTO card_checkout_sessions
-          (merchant_order_id, paymob_order_id, paymob_payment_key, amount_cents, currency, payload, payment_url, status)
-         VALUES ($1,$2,$3,$4,'EGP',$5,$6,'pending')`,
-        [orderId, paymob.paymobOrderId, paymob.paymentKey, paymob.amountCents, JSON.stringify(payload), paymob.checkoutUrl]
-      );
-
-      return res.json({
-        mode: 'paymob',
-        redirectToPaymob: true,
-        checkoutUrl: paymob.checkoutUrl,
-        merchantOrderId: orderId,
-        callback_url: callback_url || `${process.env.FRONTEND_URL}/checkout/payment/callback`,
-      });
-    }
-
-    
-    
     const { rows } = await query(
       `INSERT INTO bookings
         (listing_slug, listing_wp_id, listing_title, checkin, checkout, guests, total_egp,
@@ -162,7 +105,7 @@ router.post('/checkout', authGuest, upload.array('id_photos', 10), attachCloudin
         guest_email,
         guest_phone,
         notes,
-        payment_method,
+        method,
         unit.id,
         photoUrls,
         adultCount,

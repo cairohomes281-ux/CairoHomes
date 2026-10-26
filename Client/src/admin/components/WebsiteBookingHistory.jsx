@@ -370,7 +370,6 @@ export default function WebsiteBookingHistory() {
                 <option value="cash">Cash</option>
                 <option value="instapay">InstaPay</option>
                 <option value="visa">Visa</option>
-                <option value="bank_transfer">Bank transfer</option>
               </select>
             </div>
 

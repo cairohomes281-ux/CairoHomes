@@ -136,22 +136,18 @@ export default function PaymentPage() {
       });
       const data = await createBookingCheckout(payload);
 
-      if (selectedMethod === 'paymob_card') {
-        if (data.redirectToPaymob && data.checkoutUrl) {
-          reportEvent({ event: 'payment_redirect', unit_slug: unit?.slug || '' });
-          window.location.assign(data.checkoutUrl);
-          return;
-        }
-        setMessage(t('payment.cardNotConfigured'));
-        reportError({ type: 'payment', message: 'Card checkout is not configured' });
-        reportEvent({ event: 'payment_fail', unit_slug: unit?.slug || '' });
-        return;
-      }
-
       if (selectedMethod === 'instapay') {
         reportEvent({ event: 'booking_submitted', unit_slug: unit?.slug || '' });
         setSuccessCard({
           description: t('payment.instapaySuccess'),
+        });
+        return;
+      }
+
+      if (selectedMethod === 'visa') {
+        reportEvent({ event: 'booking_submitted', unit_slug: unit?.slug || '' });
+        setSuccessCard({
+          description: t('payment.visaSuccess'),
         });
         return;
       }
@@ -169,7 +165,7 @@ export default function PaymentPage() {
   }
 
   const methodLabel =
-    selectedMethod === 'paymob_card' ? t('payment.card') : selectedMethod === 'instapay' ? t('payment.instapay') : t('payment.cash');
+    selectedMethod === 'visa' ? t('payment.visa') : selectedMethod === 'instapay' ? t('payment.instapay') : t('payment.cash');
 
   return (
     <div>
@@ -315,16 +311,14 @@ export default function PaymentPage() {
                     t={t}
                   />
                   <MethodCard
-                    disabled
-                    comingSoon
-                    active={false}
-                    onClick={() => {}}
+                    active={selectedMethod === 'visa'}
+                    onClick={() => { setSelectedMethod('visa'); setMessage(''); }}
                     icon={<CreditCard className="h-6 w-6" strokeWidth={1.8} />}
-                    iconClass="bg-slate-100 text-slate-400"
-                    activeClass=""
-                    title={t('payment.card')}
-                    subtitle={t('payment.cardSub')}
-                    badgeActive=""
+                    iconClass="bg-sky-50 text-sky-700"
+                    activeClass="border-sky-600 bg-sky-50/30 ring-sky-600/10"
+                    title={t('payment.visa')}
+                    subtitle={t('payment.visaSub')}
+                    badgeActive="bg-sky-100 text-sky-800"
                     t={t}
                   />
                   <MethodCard
@@ -340,7 +334,7 @@ export default function PaymentPage() {
                   />
                 </div>
 
-                {selectedMethod === 'instapay' || selectedMethod === 'cash' ? (
+                {selectedMethod === 'instapay' || selectedMethod === 'cash' || selectedMethod === 'visa' ? (
                   <div className="mt-6 rounded-2xl border-2 border-red-500 bg-red-50 p-4 sm:p-5">
                     <div className="flex gap-3">
                       <ShieldCheck className="h-6 w-6 flex-shrink-0 text-red-600" />
@@ -360,7 +354,9 @@ export default function PaymentPage() {
                         <p className="mt-2 text-xs leading-5 text-red-600/90">
                           {selectedMethod === 'cash'
                             ? t('payment.cashHint')
-                            : t('payment.instapayHint')}
+                            : selectedMethod === 'visa'
+                              ? t('payment.visaHint')
+                              : t('payment.instapayHint')}
                         </p>
                       </div>
                     </div>

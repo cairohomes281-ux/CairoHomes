@@ -93,9 +93,7 @@ export default function CheckoutPage() {
             >
               <option value="instapay">{t('checkout.instapay')}</option>
               <option value="cash">{t('checkout.cashHold')}</option>
-              <option value="paymob_card" disabled>
-                {t('checkout.cardSoon')}
-              </option>
+              <option value="visa">{t('checkout.visa')}</option>
             </select>
           </label>
           <label className="block text-sm">

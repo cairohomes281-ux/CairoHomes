@@ -13,7 +13,9 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import Badge from '../components/ui/Badge';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
-import { currency, formatDate, unitDisplay } from '../utils/formatters';
+import { formatDate, unitDisplay } from '../utils/formatters';
+import { moneyUsd as currency, setDisplayEgpPerUsd } from '../utils/usdMoney';
+import { useCurrency } from '../../context/CurrencyContext';
 import { getRoleTheme } from '../utils/roleTheme';
 import { pmsLabel } from '../utils/permissions';
 
@@ -90,6 +92,8 @@ function TodayCard({ icon: Icon, iconBg, iconColor, title, count, rows, emptyTex
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { egpUsdRate } = useCurrency();
+  setDisplayEgpPerUsd(egpUsdRate);
   const theme = getRoleTheme(user?.role);
   const { isAdmin } = usePermissions();
   const canSeeFinance = isAdmin;
@@ -110,9 +114,11 @@ export default function Dashboard() {
   );
 
   const monthLabels = { '01':'Jan','02':'Feb','03':'Mar','04':'Apr','05':'May','06':'Jun','07':'Jul','08':'Aug','09':'Sep','10':'Oct','11':'Nov','12':'Dec' };
+  const usdRate = egpUsdRate > 0 ? egpUsdRate : 50;
+  const asUsd = (n) => Math.round(((Number(n) || 0) / usdRate) * 100) / 100;
   const revenueChart = (data?.monthlyRevenue || []).map(m => ({
     name: monthLabels[m.month?.split('-')[1]] || m.month,
-    revenue: m.revenue,
+    revenue: asUsd(m.revenue),
   }));
 
   const projectStats  = data?.projectStats  || [];
@@ -131,6 +137,7 @@ export default function Dashboard() {
         <p className="page-subtitle">
           Welcome back, {user?.full_name} —{' '}
           {new Date().toLocaleDateString('en-GB', { weekday:'long', day:'2-digit', month:'long', year:'numeric' })}
+          {canSeeFinance ? ' · money in USD' : ''}
         </p>
       </div>
 
@@ -239,11 +246,11 @@ export default function Dashboard() {
           </div>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.revenueByChannel.channels}>
+              <BarChart data={(data.revenueByChannel.channels || []).map((ch) => ({ ...ch, gross: asUsd(ch.gross) }))}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="channel" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => currency(v)} />
+                <Tooltip formatter={(v) => currency(v, 'USD')} />
                 <Bar dataKey="gross" name="Gross" radius={[6, 6, 0, 0]}>
                   {data.revenueByChannel.channels.map((ch, i) => (
                     <Cell key={ch.channel} fill={PROJECT_COLORS[i % PROJECT_COLORS.length]} />
@@ -381,8 +388,8 @@ export default function Dashboard() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={v => [currency(v), 'Revenue']} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => currency(v, 'USD')} />
+              <Tooltip formatter={v => [currency(v, 'USD'), 'Revenue']} />
               <Area type="monotone" dataKey="revenue" stroke="#3b82f6" strokeWidth={2}
                 fill="url(#revGrad)" name="Revenue" />
             </AreaChart>

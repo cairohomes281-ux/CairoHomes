@@ -5,6 +5,7 @@ import api from '../api/axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { useAuth } from '../context/AuthContext';
 import { currency, formatDate, formatDateTime } from '../utils/formatters';
+import { ChannelBadge } from '../components/ReservationChannels';
 
 function defaultRange() {
   const to = new Date();
@@ -82,6 +83,7 @@ export function CheckinsHistorySection({ embedded = false }) {
               <tr>
                 <th className="py-3 px-4">Check-in</th>
                 <th className="py-3 px-4">Guest</th>
+                <th className="py-3 px-4">Channel</th>
                 <th className="py-3 px-4">Unit</th>
                 <th className="py-3 px-4">Agent</th>
                 <th className="py-3 px-4">Money</th>
@@ -98,6 +100,9 @@ export function CheckinsHistorySection({ embedded = false }) {
                   <td className="py-3 px-4">
                     <div className="font-semibold text-gray-900">{r.guest_name || '—'}</div>
                     <div className="text-xs text-gray-500">{r.guest_phone || ''}</div>
+                  </td>
+                  <td className="py-3 px-4 whitespace-nowrap">
+                    <ChannelBadge reservation={r} />
                   </td>
                   <td className="py-3 px-4">
                     <div className="font-semibold">{r.unit_number || '—'}</div>

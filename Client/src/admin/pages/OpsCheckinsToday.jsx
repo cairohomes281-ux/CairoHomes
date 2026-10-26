@@ -7,6 +7,7 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { useAuth } from '../context/AuthContext';
 import { currency } from '../utils/formatters';
 import { OpsDateRangeFilter, formatOpsDay } from '../components/OpsDateRangeFilter';
+import { ChannelBadge } from '../components/ReservationChannels';
 import ReservationCurrencyPicker from '../components/ReservationCurrencyPicker';
 import {
   foreignFromEgp,
@@ -393,6 +394,7 @@ export function CheckinsTodaySection({ embedded = false }) {
               <tr>
                 <th className="py-3 px-4">Date</th>
                 <th className="py-3 px-4">Guest</th>
+                <th className="py-3 px-4">Channel</th>
                 <th className="py-3 px-4">Unit</th>
                 <th className="py-3 px-4">Payment details</th>
                 {isSupervisor ? <th className="py-3 px-4">Agent</th> : null}
@@ -440,6 +442,9 @@ export function CheckinsTodaySection({ embedded = false }) {
                       <div className="text-xs text-gray-600 tabular-nums mt-0.5">
                         {r.guest_phone || 'No phone'}
                       </div>
+                    </td>
+                    <td className="py-4 px-4 whitespace-nowrap">
+                      <ChannelBadge reservation={r} />
                     </td>
                     <td className="py-4 px-4 min-w-[9rem]">
                       <div className="font-semibold text-gray-900">{r.unit_number || '—'}</div>

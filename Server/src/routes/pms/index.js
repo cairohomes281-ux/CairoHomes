@@ -2284,9 +2284,8 @@ router.post(
         ? parseFloat(b.total_amount) || 0
         : parseFloat(b.owner_collected_amount) || 0;
 
-    const allowedMethods = new Set(['cash', 'instapay', 'visa', 'bank_transfer', 'credit_card', 'online', 'paymob_card']);
-    let paymentMethod = String(b.payment_method || '').toLowerCase() || null;
-    if (paymentMethod && !allowedMethods.has(paymentMethod)) paymentMethod = null;
+    const { normalizePaymentMethod } = require('../../lib/paymentMethods');
+    let paymentMethod = b.payment_method ? normalizePaymentMethod(b.payment_method) : null;
     
     if (paymentMethod && !['cash', 'instapay', 'visa'].includes(paymentMethod) && !truthyFlag(b.is_owner_reservation) && !truthyFlag(b.is_hold)) {
       paymentMethod = 'cash';
@@ -3390,7 +3389,8 @@ router.post(
   try {
     const b = req.body;
     const doc = req.file?.path || req.file?.secure_url || null;
-    const method = String(b.payment_method || 'cash').toLowerCase();
+    const { normalizePaymentMethod } = require('../../lib/paymentMethods');
+    const method = normalizePaymentMethod(b.payment_method || 'cash');
     const { syncReservationPaymentStatus } = require('../../lib/syncReservationPayment');
 
     const autoApprove = ['admin', 'finance', 'finance_manager'].includes(req.user.role);
@@ -4289,7 +4289,8 @@ router.post('/petty-cash/:id/pay', requireRoles('admin'), async (req, res, next)
   const client = await pool.connect();
   try {
     const reservationId = Number(req.body?.reservation_id);
-    const paymentMethod = req.body?.payment_method || 'cash';
+    const { normalizePaymentMethod } = require('../../lib/paymentMethods');
+    const paymentMethod = normalizePaymentMethod(req.body?.payment_method || 'cash');
     if (!reservationId) return res.status(400).json({ error: 'reservation_id required' });
 
     await client.query('BEGIN');

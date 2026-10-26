@@ -7,7 +7,7 @@ export default function AdminReservationDrawer({
   open,
   onClose,
   title = 'New Reservation',
-  subtitle = 'Cash or InstaPay · pending until payment is collected',
+  subtitle = 'Cash, InstaPay, or Visa · pending until payment is collected',
   children,
 }) {
   useEffect(() => {

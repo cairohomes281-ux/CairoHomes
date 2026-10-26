@@ -3,7 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Building2, CalendarDays, DollarSign, Wallet, Receipt } from 'lucide-react';
 import api from '../api/axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
-import { currency, formatDate, unitDisplay } from '../utils/formatters';
+import { formatDate, unitDisplay } from '../utils/formatters';
+import { moneyUsd as currency, setDisplayEgpPerUsd } from '../utils/usdMoney';
+import { useCurrency } from '../../context/CurrencyContext';
 
 function Card({ icon: Icon, title, value, sub, tone }) {
   const valueCls =
@@ -23,6 +25,8 @@ function Card({ icon: Icon, title, value, sub, tone }) {
 }
 
 export default function OwnerDashboard() {
+  const { egpUsdRate } = useCurrency();
+  setDisplayEgpPerUsd(egpUsdRate);
   const { data, isLoading, error } = useQuery({
     queryKey: ['owner-dashboard'],
     queryFn: () => api.get('/owner/dashboard').then((r) => r.data),

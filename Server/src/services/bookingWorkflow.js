@@ -1,4 +1,5 @@
 const { query } = require('../config/db');
+const { normalizePaymentMethod } = require('../lib/paymentMethods');
 const { sendBookingAcceptedEmail } = require('./guestEmails');
 const { sendBookingAcceptedWhatsApp } = require('./guestWhatsApp');
 const {
@@ -238,13 +239,7 @@ async function acceptWebsiteBooking(bookingId, staffUser, options = {}) {
           evidenceUrl,
           evidenceName,
           paidCap,
-          method.includes('instapay')
-            ? 'instapay'
-            : method.includes('cash')
-              ? 'cash'
-              : method.includes('paymob') || method.includes('card')
-                ? 'paymob_card'
-                : null,
+          method ? normalizePaymentMethod(method) : null,
           booking.broker_name || null,
           parseFloat(booking.broker_amount_per_night) || 0,
           parseFloat(booking.broker_total) || 0,
@@ -298,11 +293,7 @@ async function acceptWebsiteBooking(bookingId, staffUser, options = {}) {
   
   if (!alreadyPaid && amountPaid > 0) {
     try {
-      const payMethod = method.includes('instapay')
-        ? 'instapay'
-        : method.includes('cash')
-          ? 'cash'
-          : 'bank_transfer';
+      const payMethod = normalizePaymentMethod(method || 'cash');
       await query(
         `INSERT INTO payments (
            reservation_id, booking_id, amount, payment_date, payment_method,
@@ -438,12 +429,7 @@ async function updateWebsiteBookingCollectedAmount(bookingId, staffUser, options
     };
   }
 
-  const payMethodRaw = String(options.paymentMethod || options.payment_method || 'cash').toLowerCase();
-  const payMethod = payMethodRaw.includes('instapay')
-    ? 'instapay'
-    : payMethodRaw.includes('transfer') || payMethodRaw.includes('bank')
-      ? 'bank_transfer'
-      : 'cash';
+  const payMethod = normalizePaymentMethod(options.paymentMethod || options.payment_method || 'cash');
 
   if (delta > 0.009) {
     await query(

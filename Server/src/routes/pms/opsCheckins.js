@@ -276,6 +276,8 @@ function mapCheckin(row) {
     exchange_rate: Number(row.exchange_rate) > 0 ? Number(row.exchange_rate) : 1,
     payment_status: row.payment_status,
     payment_method: row.payment_method,
+    booking_source: row.booking_source || null,
+    booking_id: row.booking_id || null,
     payment_breakdown: breakdown,
     ops_money_collected: moneyCollected,
     ops_money_collected_amount: Number(row.ops_money_collected_amount) || 0,
@@ -518,7 +520,7 @@ router.post(
         }
       } else {
         let method = String(req.body?.payment_method || 'cash').toLowerCase();
-        if (!['cash', 'instapay', 'visa', 'bank_transfer'].includes(method)) method = 'cash';
+        if (!['cash', 'instapay', 'visa'].includes(method)) method = 'cash';
         splits.push({
           amount_original: amountForeign,
           amount: amountEgp,
@@ -761,6 +763,8 @@ router.get('/ops/checkin-comments', requireRoles(...OPS_SUPER_ROLES), async (req
               r.guest_phone,
               r.check_in,
               r.check_out,
+              r.booking_source,
+              r.booking_id,
               r.ops_handed_over,
               r.ops_handed_over_at,
               r.ops_handover_comment,
@@ -807,6 +811,8 @@ router.get('/ops/checkin-comments', requireRoles(...OPS_SUPER_ROLES), async (req
         guest_phone: r.guest_phone,
         check_in: r.check_in,
         check_out: r.check_out,
+        booking_source: r.booking_source || null,
+        booking_id: r.booking_id || null,
         unit_number: r.unit_number,
         unit_title: r.unit_title,
         project: r.project,
@@ -877,6 +883,8 @@ function mapCheckout(row) {
     check_in: row.check_in,
     check_out: row.check_out,
     status: row.status,
+    booking_source: row.booking_source || null,
+    booking_id: row.booking_id || null,
     unit_id: row.unit_id,
     unit_number: row.unit_number,
     unit_title: row.unit_title,
@@ -905,6 +913,8 @@ router.get('/ops/checkouts-today', requireRoles(...OPS_ROLES), async (req, res, 
               r.check_in,
               r.check_out,
               r.status,
+              r.booking_source,
+              r.booking_id,
               r.unit_id,
               (
                 SELECT string_agg(s.full_name, ', ' ORDER BY s.full_name)
@@ -955,6 +965,8 @@ router.post(
                 r.check_in,
                 r.check_out,
                 r.status,
+                r.booking_source,
+                r.booking_id,
                 r.unit_id,
                 r.ops_assigned_to,
                 COALESCE(r.insurance, 0)::float AS insurance,
@@ -992,7 +1004,7 @@ router.post(
       }
 
       let method = String(req.body?.payment_method || 'cash').toLowerCase();
-      if (!['cash', 'instapay', 'visa', 'bank_transfer'].includes(method)) method = 'cash';
+      if (!['cash', 'instapay', 'visa'].includes(method)) method = 'cash';
 
       let refunded =
         req.body?.refunded_amount != null && req.body.refunded_amount !== ''
@@ -1061,6 +1073,8 @@ router.post(
                 r.check_in,
                 r.check_out,
                 r.status,
+                r.booking_source,
+                r.booking_id,
                 r.unit_id,
                 COALESCE(r.insurance, 0)::float AS insurance,
                 r.insurance_refund_status,

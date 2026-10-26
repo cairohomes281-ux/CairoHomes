@@ -6,6 +6,7 @@ import api from '../api/axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { currency } from '../utils/formatters';
 import { OpsDateRangeFilter, formatOpsDay } from '../components/OpsDateRangeFilter';
+import { ChannelBadge } from '../components/ReservationChannels';
 
 export function CheckoutsTodaySection({ embedded = false }) {
   const qc = useQueryClient();
@@ -127,6 +128,7 @@ export function CheckoutsTodaySection({ embedded = false }) {
               <tr>
                 <th className="py-3 px-4">Date</th>
                 <th className="py-3 px-4">Guest</th>
+                <th className="py-3 px-4">Channel</th>
                 <th className="py-3 px-4">Unit</th>
                 <th className="py-3 px-4">Insurance</th>
                 <th className="py-3 px-4">Refund status</th>
@@ -150,6 +152,9 @@ export function CheckoutsTodaySection({ embedded = false }) {
                       {r.guest_phone ? (
                         <div className="text-xs text-gray-500">{r.guest_phone}</div>
                       ) : null}
+                    </td>
+                    <td className="py-4 px-4 whitespace-nowrap">
+                      <ChannelBadge reservation={r} />
                     </td>
                     <td className="py-4 px-4 min-w-[9rem]">
                       <div className="font-semibold text-gray-900">{r.unit_number || '—'}</div>
@@ -256,7 +261,6 @@ export function CheckoutsTodaySection({ embedded = false }) {
                                   <option value="cash">Cash</option>
                                   <option value="instapay">InstaPay</option>
                                   <option value="visa">Visa</option>
-                                  <option value="bank_transfer">Bank transfer</option>
                                 </select>
                               </div>
                               <div>

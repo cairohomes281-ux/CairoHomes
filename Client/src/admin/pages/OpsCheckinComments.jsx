@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import api from '../api/axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { formatDate, formatDateTime } from '../utils/formatters';
+import { ChannelBadge } from '../components/ReservationChannels';
 
 function defaultRange() {
   const to = new Date();
@@ -111,7 +112,10 @@ export function CheckinCommentsSection({ embedded = false }) {
                   <div className="font-semibold text-gray-900">
                     {r.guest_name || '—'} · {r.unit_number || '—'}
                   </div>
-                  <div className="text-xs text-gray-500 mt-0.5">
+                  <div className="mt-1">
+                    <ChannelBadge reservation={r} />
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
                     Check-in {formatDate(r.check_in)}
                     {r.project ? ` · ${r.project}` : ''}
                     {r.ops_handed_over ? ' · Handed over' : ' · Not handed over yet'}

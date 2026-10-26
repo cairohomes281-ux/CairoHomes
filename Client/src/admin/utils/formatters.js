@@ -78,7 +78,7 @@ export function reservationChannel(r) {
   };
 }
 
-export const PAYMENT_METHODS = ['cash', 'instapay', 'visa', 'bank_transfer', 'credit_card', 'online'];
+export const PAYMENT_METHODS = ['cash', 'instapay', 'visa'];
 export const MANUAL_PAYMENT_METHODS = ['cash', 'instapay', 'visa'];
 export const PAYMENT_METHOD_LABELS = {
   cash: 'Cash',
