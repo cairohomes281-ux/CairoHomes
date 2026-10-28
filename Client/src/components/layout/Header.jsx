@@ -51,7 +51,7 @@ export default function Header({ overHero = false }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [staysOpen, setStaysOpen] = useState(false);
   const staysRef = useRef(null);
-  const { currency, setCurrency } = useCurrency();
+  const { currency } = useCurrency();
   const { user } = useAuth();
   const { t } = useLocale();
   const navigate = useNavigate();
@@ -171,17 +171,12 @@ export default function Header({ overHero = false }) {
 
           <div className={`flex items-center justify-end gap-1 sm:gap-2 ${ink}`}>
             <LanguageToggle className={`hidden rounded-full px-3 py-2 sm:inline-flex ${solid ? 'hover:bg-ch-rose/70' : 'hover:bg-white/10'}`} />
-            <select
-              aria-label={t('common.currency')}
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className={`hidden cursor-pointer appearance-none rounded-full bg-transparent px-3 py-2 text-[12px] font-semibold tracking-[0.12em] outline-none md:block ${
-                solid ? 'hover:bg-ch-rose/70' : 'hover:bg-white/10'
-              }`}
+            <span
+              className="hidden rounded-full px-3 py-2 text-[12px] font-semibold tracking-[0.12em] md:inline-flex"
+              title={t('common.currency')}
             >
-              <option value="EGP" className="text-ch-pine">EGP</option>
-              <option value="USD" className="text-ch-pine">USD</option>
-            </select>
+              {currency}
+            </span>
             <Link
               to="/wishlist"
               className={`hidden h-10 w-10 place-items-center rounded-full md:grid ${solid ? 'hover:bg-ch-rose/70' : 'hover:bg-white/10'}`}
@@ -205,12 +200,12 @@ export default function Header({ overHero = false }) {
         </div>
       </header>
 
-      {mobileOpen && <MobileMenu onClose={() => setMobileOpen(false)} currency={currency} setCurrency={setCurrency} user={user} pathname={pathname} />}
+      {mobileOpen && <MobileMenu onClose={() => setMobileOpen(false)} currency={currency} user={user} pathname={pathname} />}
     </>
   );
 }
 
-function MobileMenu({ onClose, currency, setCurrency, user, pathname }) {
+function MobileMenu({ onClose, currency, user, pathname }) {
   const { t, toggleLocale, locale } = useLocale();
 
   return (
@@ -250,15 +245,9 @@ function MobileMenu({ onClose, currency, setCurrency, user, pathname }) {
           <button type="button" onClick={toggleLocale} className="rounded-full border border-white/15 px-4 py-3">
             {locale === 'en' ? 'العربية' : 'English'}
           </button>
-          <select
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
-            aria-label={t('common.currency')}
-            className="rounded-full border border-white/15 bg-transparent px-4 py-3 text-center"
-          >
-            <option value="EGP" className="text-ch-pine">EGP</option>
-            <option value="USD" className="text-ch-pine">USD</option>
-          </select>
+          <span className="rounded-full border border-white/15 px-4 py-3 text-center text-[12px] font-semibold tracking-[0.12em]">
+            {currency}
+          </span>
         </div>
       </nav>
 

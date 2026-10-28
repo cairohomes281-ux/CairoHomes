@@ -269,7 +269,7 @@ export default function PropertyFiltersSidebar({
           <input
             type="number"
             min={0}
-            step={isLongTerm ? 5000 : 500}
+            step={isLongTerm ? 50 : 10}
             className={budgetInputCls}
             value={priceMin || ''}
             placeholder={t('search.min')}
@@ -280,7 +280,7 @@ export default function PropertyFiltersSidebar({
           <input
             type="number"
             min={0}
-            step={isLongTerm ? 5000 : 500}
+            step={isLongTerm ? 50 : 10}
             className={budgetInputCls}
             value={priceMax || ''}
             placeholder={t('search.max')}

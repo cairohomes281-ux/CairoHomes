@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState, useCallback, useEffect } from 'react';
+// Guest prices are always USD, converted from stored EGP with the live rate.
 import api from '../api/http';
 import { useLocale } from './LocaleContext';
 
@@ -15,13 +16,9 @@ function roundUsd(egpAmount, egpPerUsd) {
 
 export function CurrencyProvider({ children }) {
   const { t, localeTag } = useLocale();
-  const [currency, setCurrency] = useState(() => localStorage.getItem('ch_currency') || 'EGP');
+  const currency = 'USD';
   const [egpUsdRate, setEgpUsdRate] = useState(FALLBACK_EGP_PER_USD);
   const [rateSource, setRateSource] = useState('fallback');
-
-  useEffect(() => {
-    localStorage.setItem('ch_currency', currency);
-  }, [currency]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,32 +43,28 @@ export function CurrencyProvider({ children }) {
     (egpAmount, { perNight = true } = {}) => {
       const n = Number(egpAmount);
       if (!Number.isFinite(n) || n <= 0) return null;
-      if (currency === 'USD') {
-        const usd = roundUsd(n, egpUsdRate);
-        const label = Number.isInteger(usd)
-          ? usd.toLocaleString(localeTag)
-          : usd.toLocaleString(localeTag, { minimumFractionDigits: 0, maximumFractionDigits: 1 });
-        return perNight ? t('common.priceUsdNight', { amount: label }) : t('common.priceUsd', { amount: label });
-      }
-      const label = n.toLocaleString(localeTag);
-      return perNight ? t('common.priceEgpNight', { amount: label }) : t('common.priceEgp', { amount: label });
+      const usd = roundUsd(n, egpUsdRate);
+      const label = Number.isInteger(usd)
+        ? usd.toLocaleString(localeTag)
+        : usd.toLocaleString(localeTag, { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+      return perNight ? t('common.priceUsdNight', { amount: label }) : t('common.priceUsd', { amount: label });
     },
-    [currency, egpUsdRate, localeTag, t]
+    [egpUsdRate, localeTag, t]
   );
 
   const convertFromEgp = useCallback(
     (egpAmount) => {
       const n = Number(egpAmount);
       if (!Number.isFinite(n)) return 0;
-      return currency === 'USD' ? roundUsd(n, egpUsdRate) : n;
+      return roundUsd(n, egpUsdRate);
     },
-    [currency, egpUsdRate]
+    [egpUsdRate]
   );
 
   const value = useMemo(
     () => ({
       currency,
-      setCurrency,
+      setCurrency: () => {},
       egpUsdRate,
       rateSource,
       formatPrice,

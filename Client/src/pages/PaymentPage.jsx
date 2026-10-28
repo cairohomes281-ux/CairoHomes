@@ -8,13 +8,13 @@ import BookingRequestSuccess from '../components/booking/BookingRequestSuccess';
 import { createBookingCheckout } from '../api/http';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
+import { useCurrency } from '../context/CurrencyContext';
 import { reportError, reportEvent } from '../utils/siteTelemetry';
-
-const money = (n) => `EGP ${Number(n || 0).toLocaleString('en-US')}`;
-
 
 export default function PaymentPage() {
   const { t } = useLocale();
+  const { formatPrice } = useCurrency();
+  const money = (n) => formatPrice(n, { perNight: false }) || '—';
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();

@@ -11,6 +11,7 @@ import { resolveLocationFilter, useProjectCatalog } from '../hooks/useProjectCat
 import api from '../api/http';
 import { getDisplayPriceEgp } from '../utils/displayPrice';
 import { useLocale } from '../context/LocaleContext';
+import { useCurrency } from '../context/CurrencyContext';
 import BrandLoader from '../components/ui/BrandLoader';
 
 const PAGE_SIZE = 18;
@@ -50,6 +51,7 @@ function buildApiParams(sp, { limit, offset, listingType }) {
 
 export default function SearchPage({ listingType = 'rent' }) {
   const { t } = useLocale();
+  const { egpUsdRate } = useCurrency();
   const isLongTerm = listingType === 'long_term';
   const basePath = isLongTerm ? '/long-term' : '/search';
   const [params, setParams] = useSearchParams();
@@ -148,11 +150,14 @@ export default function SearchPage({ listingType = 'rent' }) {
     let list = [...items];
     const minPrice = Number(params.get('priceMin') || 0);
     const maxPrice = Number(params.get('priceMax') || 0);
-    if (minPrice > 0 || maxPrice > 0) {
+    const rate = egpUsdRate > 0 ? egpUsdRate : 50;
+    const minEgp = minPrice > 0 ? minPrice * rate : 0;
+    const maxEgp = maxPrice > 0 ? maxPrice * rate : 0;
+    if (minEgp > 0 || maxEgp > 0) {
       list = list.filter((u) => {
         const price = getDisplayPriceEgp(u) || 0;
-        if (minPrice > 0 && price < minPrice) return false;
-        if (maxPrice > 0 && price > maxPrice) return false;
+        if (minEgp > 0 && price < minEgp) return false;
+        if (maxEgp > 0 && price > maxEgp) return false;
         return true;
       });
     }
@@ -183,7 +188,7 @@ export default function SearchPage({ listingType = 'rent' }) {
       list.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
     }
     return list;
-  }, [items, params, sort]);
+  }, [items, params, sort, egpUsdRate]);
 
   const chipDestination =
     params.get('destination') ||

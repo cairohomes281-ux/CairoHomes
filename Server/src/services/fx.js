@@ -78,4 +78,45 @@ async function getUsdEgpRate({ force = false } = {}) {
   };
 }
 
-module.exports = { getUsdEgpRate, FALLBACK_RATE };
+const crossCache = { rates: null, fetchedAt: 0 };
+
+async function usdCrossRates() {
+  const now = Date.now();
+  if (crossCache.rates && now - crossCache.fetchedAt < CACHE_TTL_MS) return crossCache.rates;
+  try {
+    const data = await fetchJson('https://open.er-api.com/v6/latest/USD');
+    if (data?.rates && Number(data.rates.EGP) > 0) {
+      crossCache.rates = data.rates;
+      crossCache.fetchedAt = now;
+      return data.rates;
+    }
+  } catch (_) {}
+  return crossCache.rates;
+}
+
+/** EGP for 1 unit of `currency`, using the live USD/EGP rate. */
+async function getEgpPerUnit(currency) {
+  const code = String(currency || 'USD').trim().toUpperCase();
+  if (code === 'EGP') {
+    return { currency: 'EGP', egp_per_unit: 1, source: 'identity' };
+  }
+  const usd = await getUsdEgpRate();
+  if (code === 'USD') {
+    return { currency: 'USD', egp_per_unit: usd.usd_egp, source: usd.source };
+  }
+  const rates = await usdCrossRates();
+  const unitsPerUsd = Number(rates?.[code]);
+  if (!(unitsPerUsd > 0) || !(usd.usd_egp > 0)) {
+    const err = new Error(`No live rate for ${code}`);
+    err.status = 404;
+    throw err;
+  }
+  return {
+    currency: code,
+    egp_per_unit: Math.round((usd.usd_egp / unitsPerUsd) * 10000) / 10000,
+    source: 'open.er-api.com',
+    usd_egp: usd.usd_egp,
+  };
+}
+
+module.exports = { getUsdEgpRate, getEgpPerUnit, FALLBACK_RATE };

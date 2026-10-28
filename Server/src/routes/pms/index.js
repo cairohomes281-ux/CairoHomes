@@ -2032,6 +2032,15 @@ const OTA_DETAILS_NEEDED_SQL = `(
   )
 )`;
 
+router.get('/fx/egp/:currency', async (req, res, next) => {
+  try {
+    const { getEgpPerUnit } = require('../../services/fx');
+    res.json(await getEgpPerUnit(req.params.currency));
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/reservations/usd-rate', async (_req, res, next) => {
   try {
     const { rows } = await query(

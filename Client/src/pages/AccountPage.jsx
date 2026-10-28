@@ -4,17 +4,16 @@ import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
+import { useCurrency } from '../context/CurrencyContext';
 import api from '../api/http';
 import ListingCard from '../components/ListingCard';
 import { getListingWpId, useWishlist } from '../hooks/useWishlist';
 import BrandLoader from '../components/ui/BrandLoader';
 
-function money(n) {
-  return Number(n || 0).toLocaleString('en-EG');
-}
-
 export default function AccountPage() {
   const { t } = useLocale();
+  const { formatPrice } = useCurrency();
+  const money = (n) => formatPrice(n, { perNight: false }) || '—';
   const { user, signOut } = useAuth();
   const [trips, setTrips] = useState([]);
   const [points, setPoints] = useState(0);
@@ -83,7 +82,7 @@ export default function AccountPage() {
 
         <section className="mt-10 rounded-2xl border border-ch-line bg-white p-6">
           <h2 className="font-display text-2xl text-ch-pine">{t('account.pointsTitle')}</h2>
-          <p className="mt-2 text-3xl font-semibold text-ch-pine">{money(points)}</p>
+          <p className="mt-2 text-3xl font-semibold text-ch-pine">{Number(points || 0).toLocaleString('en-US')}</p>
           <p className="mt-2 max-w-xl text-sm leading-6 text-ch-muted">
             {t('account.pointsBody')}
           </p>
@@ -123,7 +122,7 @@ export default function AccountPage() {
                     <p className="mt-2 text-xs text-ch-muted">
                       {t('account.totalPoints', {
                         amount: money(trip.total_egp),
-                        points: money(Math.round(Number(trip.total_egp) || 0)),
+                        points: Math.round(Number(trip.total_egp) || 0).toLocaleString('en-US'),
                       })}
                     </p>
                   )}
