@@ -22,7 +22,7 @@ export default function AboutPage() {
         title={t('about.titleBefore')}
         titleEm={t('about.titleEm')}
         body={t('about.heroBody')}
-        image={CAIRO_IMAGES.feluccas}
+        image={CAIRO_IMAGES.villa}
       >
         <div className="flex flex-wrap items-center gap-6">
           <Link to="/search" className="ch-btn">
@@ -47,7 +47,7 @@ export default function AboutPage() {
       <section className="overflow-hidden">
         <div className="ch-container grid gap-5 md:grid-cols-[1.3fr_0.7fr_1fr]">
           <Reveal mask className="aspect-[4/3] overflow-hidden rounded-[2rem] md:aspect-auto md:h-[30rem]">
-            <img src={CAIRO_IMAGES.nile} alt="" loading="lazy" className="h-full w-full object-cover" />
+            <img src={CAIRO_IMAGES.house} alt="" loading="lazy" className="h-full w-full object-cover" />
           </Reveal>
           <Reveal mask delay={120} className="ch-arch hidden md:block md:h-[30rem]">
             <img src={CAIRO_IMAGES.reading} alt="" loading="lazy" className="h-full w-full object-cover" />

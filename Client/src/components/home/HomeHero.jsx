@@ -6,11 +6,11 @@ import { CAIRO_IMAGES } from '../../data/compounds';
 import { LogoMark } from '../brand/Logo';
 
 const SLIDES = [
-  { src: CAIRO_IMAGES.nile, captionKey: 'home.heroSlide0' },
-  { src: CAIRO_IMAGES.livingRoom, captionKey: 'home.heroSlide1' },
-  { src: CAIRO_IMAGES.feluccas, captionKey: 'home.heroSlide2' },
-  { src: CAIRO_IMAGES.suite, captionKey: 'home.heroSlide3' },
-  { src: CAIRO_IMAGES.skyline, captionKey: 'home.heroSlide4' },
+  { src: CAIRO_IMAGES.villa, captionKey: 'home.heroSlide0' },
+  { src: CAIRO_IMAGES.chalet, captionKey: 'home.heroSlide1' },
+  { src: CAIRO_IMAGES.house, captionKey: 'home.heroSlide2' },
+  { src: CAIRO_IMAGES.poolHouse, captionKey: 'home.heroSlide3' },
+  { src: CAIRO_IMAGES.modernHome, captionKey: 'home.heroSlide4' },
 ];
 
 export default function HomeHero() {

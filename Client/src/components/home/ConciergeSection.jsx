@@ -16,7 +16,7 @@ export default function ConciergeSection() {
         <div className="relative order-2 lg:order-1">
           <Reveal mask className="relative">
             <div className="aspect-[4/5] overflow-hidden rounded-[2rem]">
-              <img src={CAIRO_IMAGES.pyramidsDusk} alt={t('home.conciergeImageAlt')} loading="lazy" className="h-full w-full object-cover" />
+              <img src={CAIRO_IMAGES.chalet} alt={t('home.conciergeImageAlt')} loading="lazy" className="h-full w-full object-cover" />
             </div>
           </Reveal>
           <Reveal delay={250} className="absolute -bottom-10 end-4 w-[44%] sm:end-[-2rem]">

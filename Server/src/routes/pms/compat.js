@@ -1661,6 +1661,149 @@ router.put('/tasks/:id', async (req, res, next) => {
   }
 });
 
+const AWAITING_COLLECTION_NOTE = 'Awaiting collection (manual reservation)';
+
+/**
+ * Availability check for an edited stay. Other reservations and website bookings
+ * may not overlap any night; calendar / Airbnb blocks are only checked on nights
+ * the stay does not already hold (keepIn..keepOut on the same unit).
+ * Returns an error message, or null when the dates are free.
+ */
+async function findEditConflict({ reservationId, bookingId, unitId, checkIn, checkOut, keepIn, keepOut }) {
+  const { rows: clash } = await query(
+    `SELECT id, guest_name FROM reservations
+     WHERE unit_id = $1 AND id <> $2
+       AND status IS DISTINCT FROM 'cancelled'
+       AND NOT (
+         hold_expires_at IS NOT NULL AND hold_expires_at < now()
+         AND status IN ('pending', 'hold')
+       )
+       AND check_in < $4::date AND check_out > $3::date
+     ORDER BY check_in
+     LIMIT 1`,
+    [unitId, reservationId, checkIn, checkOut]
+  );
+  if (clash[0]) {
+    const who = clash[0].guest_name ? ` (${clash[0].guest_name})` : '';
+    return `Those dates overlap reservation #${clash[0].id}${who}`;
+  }
+  const { rows: web } = await query(
+    `SELECT id FROM bookings
+     WHERE status IN ('confirmed', 'pending', 'held')
+       AND (hold_expires_at IS NULL OR hold_expires_at > now())
+       AND unit_id = $1
+       AND ($4::uuid IS NULL OR id <> $4::uuid)
+       AND checkin < $3::date AND checkout > $2::date
+       AND NOT EXISTS (
+         SELECT 1 FROM reservations r
+         WHERE r.booking_id = bookings.id AND r.status <> 'cancelled'
+       )
+     LIMIT 1`,
+    [unitId, checkIn, checkOut, bookingId]
+  );
+  if (web[0]) return 'Those dates overlap a website booking';
+  const outsideKept = (col) => `NOT ($4::date IS NOT NULL AND ${col} >= $4::date AND ${col} < $5::date)`;
+  const { rows: blocks } = await query(
+    `SELECT b.date::text AS d
+     FROM unit_blocked_dates b
+     JOIN units u ON u.wp_post_id = b.wp_post_id
+     WHERE u.id = $1
+       AND b.date >= $2::date AND b.date < $3::date
+       AND COALESCE(b.source, 'manual') NOT IN ('reservation', 'reservation_import', 'booking')
+       AND ${outsideKept('b.date')}
+     ORDER BY b.date
+     LIMIT 1`,
+    [unitId, checkIn, checkOut, keepIn || null, keepOut || null]
+  );
+  if (blocks[0]) return `The calendar is blocked on ${blocks[0].d}`;
+  const { rows: ical } = await query(
+    `SELECT ib.date::text AS d
+     FROM unit_ical_blocks ib
+     JOIN units u ON u.wp_post_id = ib.wp_post_id
+     WHERE u.id = $1
+       AND ib.date >= $2::date AND ib.date < $3::date
+       AND ${outsideKept('ib.date')}
+     ORDER BY ib.date
+     LIMIT 1`,
+    [unitId, checkIn, checkOut, keepIn || null, keepOut || null]
+  );
+  if (ical[0]) return `${ical[0].d} is already booked on Airbnb`;
+  return null;
+}
+
+/**
+ * Keep the pending "awaiting collection" payment in line with an edited bill
+ * (same formula as when the reservation was created).
+ */
+async function refreshAwaitingCollection(r) {
+  if (!r?.id) return;
+  const { rows } = await query(
+    `SELECT id FROM payments
+     WHERE reservation_id = $1 AND status = 'pending' AND notes = $2
+     ORDER BY id DESC`,
+    [r.id, AWAITING_COLLECTION_NOTE]
+  );
+  if (!rows.length) return;
+  const total = Number(r.total_amount) || 0;
+  const paid = Number(r.amount_paid) || 0;
+  const insurance = Number(r.insurance) || 0;
+  let toCollect = total - paid;
+  if (r.owner_collected_type === 'full') toCollect = insurance - paid;
+  else if (r.owner_collected_type === 'partial') {
+    toCollect = total - (Number(r.owner_collected_amount) || 0) - paid;
+  }
+  toCollect = Math.round(Math.max(0, toCollect) * 100) / 100;
+  const ids = rows.map((p) => p.id);
+  const ownerBlock = Number(r.is_owner_reservation) === 1 && total === 0;
+  if (String(r.status) === 'cancelled' || ownerBlock || toCollect <= 0.009) {
+    await query(`UPDATE payments SET status = 'cancelled' WHERE id = ANY($1::int[])`, [ids]);
+    return;
+  }
+  const method = ['cash', 'instapay', 'visa'].includes(String(r.payment_method))
+    ? r.payment_method
+    : null;
+  await query(
+    `UPDATE payments SET amount = $1, payment_method = COALESCE($2, payment_method)
+     WHERE id = $3`,
+    [toCollect, method, ids[0]]
+  );
+  if (ids.length > 1) {
+    await query(`UPDATE payments SET status = 'cancelled' WHERE id = ANY($1::int[])`, [ids.slice(1)]);
+  }
+}
+
+const AUDITED_RESERVATION_FIELDS = [
+  'unit_id', 'check_in', 'check_out', 'nights', 'status', 'guest_name', 'guest_phone',
+  'guest_email', 'guest_nationality', 'adults', 'children', 'nanny_count', 'booking_source',
+  'sales_person_id', 'is_owner_reservation', 'currency', 'exchange_rate', 'price_per_night',
+  'total_amount', 'down_payment', 'insurance', 'beach_access_fees', 'broker_name',
+  'broker_amount_per_night', 'owner_collected_type', 'owner_collected_amount',
+  'payment_method', 'payment_status', 'amount_paid', 'notes',
+];
+
+/** Field-by-field diff of a reservation update, for the audit log. */
+function reservationChanges(before, after) {
+  if (!before || !after) return {};
+  const norm = (v) => {
+    if (v === null || v === undefined) return '';
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    return String(v);
+  };
+  const out = {};
+  for (const key of AUDITED_RESERVATION_FIELDS) {
+    const from = norm(before[key]);
+    const to = norm(after[key]);
+    if (from === to) continue;
+    const nf = Number(from);
+    const nt = Number(to);
+    if (from !== '' && to !== '' && Number.isFinite(nf) && Number.isFinite(nt) && Math.abs(nf - nt) < 0.005) {
+      continue;
+    }
+    out[key] = { from: before[key] ?? null, to: after[key] ?? null };
+  }
+  return out;
+}
+
 router.put(
   '/reservations/:id',
   requireRoles(
@@ -1672,15 +1815,32 @@ router.put(
     'operations_supervisor',
     'admin'
   ),
+  upload.single('transfer_proof'),
+  setCloudinaryFolder(FOLDER_PAYMENTS),
+  attachCloudinaryUrls,
   async (req, res, next) => {
-  
+
   try {
     const existing = await loadReservationAccess(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Not found' });
     await assertReservationOwned(req.user, existing);
+    // Full previous row: stay dates for block release, conflict checks and the audit diff.
+    const { rows: beforeRows } = await query(
+      `SELECT *, check_in::text AS check_in, check_out::text AS check_out FROM reservations WHERE id = $1`,
+      [req.params.id]
+    );
+    const before = beforeRows[0] || existing;
 
-    const b = req.body;
+    const b = req.body || {};
     const { isAdmin, assertAssignableSalesPerson } = require('../../lib/reservationScope');
+    const RESERVATION_STATUSES = ['pending', 'hold', 'confirmed', 'checked_in', 'checked_out', 'cancelled'];
+    if (b.status !== undefined && b.status !== null && b.status !== '') {
+      if (!RESERVATION_STATUSES.includes(String(b.status))) {
+        return res.status(400).json({ error: 'Unknown reservation status' });
+      }
+    } else {
+      b.status = undefined;
+    }
     
     if (!isAdmin(req.user) && !b.extend_stay && !b.fill_ota_details) {
       b.sales_person_id = req.user.id;
@@ -1693,15 +1853,18 @@ router.put(
       b.exchange_rate = 1;
     }
     const money = parseReservationCurrency(b);
-    const checkIn = b.check_in || existing.check_in;
-    const checkOut = b.check_out || existing.check_out;
+    const checkIn = String(b.check_in || before.check_in || '').slice(0, 10);
+    const checkOut = String(b.check_out || before.check_out || '').slice(0, 10);
+    if ((b.check_in || b.check_out) && !(checkOut > checkIn)) {
+      return res.status(400).json({ error: 'Check-out must be after check-in' });
+    }
     const ci = new Date(checkIn);
     const co = new Date(checkOut);
     const nights = Math.max(1, Math.round((co - ci) / 86400000));
     const brokerPerNight =
       b.broker_amount_per_night !== undefined
         ? parseFloat(b.broker_amount_per_night) || 0
-        : parseFloat(existing.broker_amount_per_night) || 0;
+        : parseFloat(before.broker_amount_per_night) || 0;
     const brokerTotal =
       b.broker_total !== undefined
         ? parseFloat(b.broker_total) || 0
@@ -1799,41 +1962,44 @@ router.put(
       }
     }
 
-    if (
-      b.adults !== undefined ||
-      b.children !== undefined ||
-      b.nanny_count !== undefined ||
-      b.nanny !== undefined
-    ) {
+    // Over capacity is allowed, same as when creating (the form warns and beach
+    // access charges the extra guests); only an adult is required.
+    if (b.adults !== undefined || b.is_owner_reservation !== undefined) {
       const adults =
         b.adults !== undefined && b.adults !== ''
           ? Math.max(0, parseInt(b.adults, 10) || 0)
-          : Math.max(0, parseInt(existing.adults, 10) || 0);
-      const children =
-        b.children !== undefined && b.children !== ''
-          ? Math.max(0, parseInt(b.children, 10) || 0)
-          : Math.max(0, parseInt(existing.children, 10) || 0);
-      const nannyCount =
-        b.nanny_count !== undefined || b.nanny !== undefined
-          ? Math.max(0, parseInt(b.nanny_count ?? b.nanny, 10) || 0)
-          : Math.max(0, parseInt(existing.nanny_count, 10) || 0);
+          : Math.max(0, parseInt(before.adults, 10) || 0);
       const isOwner =
         b.is_owner_reservation !== undefined
           ? b.is_owner_reservation === true ||
             b.is_owner_reservation === 1 ||
             b.is_owner_reservation === '1'
-          : !!existing.is_owner_reservation;
-      if (!isOwner && adults < 1) {
+          : Number(before.is_owner_reservation) === 1;
+      const holdRow = before.hold_expires_at && ['pending', 'hold'].includes(String(before.status));
+      if (!isOwner && !holdRow && adults < 1) {
         return res.status(400).json({ error: 'At least 1 adult is required' });
       }
-      const unitId = b.unit_id || existing.unit_id;
-      const { rows: unitRows } = await query(`SELECT guests FROM units WHERE id = $1`, [unitId]);
-      const cap = Number(unitRows[0]?.guests);
-      if (Number.isFinite(cap) && adults + children + nannyCount > cap) {
-        return res
-          .status(400)
-          .json({ error: `Party size exceeds unit capacity (${cap})` });
-      }
+    }
+
+    // Moving dates or unit: the new nights must be free (the stay's own nights are fine).
+    const targetUnitId = String(b.unit_id || before.unit_id);
+    const unitChanged = Boolean(b.unit_id) && String(b.unit_id) !== String(before.unit_id);
+    const datesChanged =
+      checkIn !== String(before.check_in || '').slice(0, 10) ||
+      checkOut !== String(before.check_out || '').slice(0, 10);
+    const freesDates = String(b.status || before.status) === 'cancelled';
+    if (!b.extend_stay && !b.fill_ota_details && !freesDates && (unitChanged || datesChanged)) {
+      const conflict = await findEditConflict({
+        reservationId: Number(req.params.id),
+        bookingId: before.booking_id || null,
+        unitId: targetUnitId,
+        checkIn,
+        checkOut,
+        // Nights the stay already holds on this unit need no re-check against calendar blocks.
+        keepIn: unitChanged ? null : String(before.check_in || '').slice(0, 10),
+        keepOut: unitChanged ? null : String(before.check_out || '').slice(0, 10),
+      });
+      if (conflict) return res.status(409).json({ error: conflict });
     }
 
     if (b.fill_ota_details) {
@@ -1923,7 +2089,10 @@ router.put(
          broker_name = COALESCE($19, broker_name),
          broker_amount_per_night = COALESCE($20, broker_amount_per_night),
          broker_total = COALESCE($21, broker_total),
-         owner_collected_type = COALESCE($22, owner_collected_type),
+         owner_collected_type = CASE
+           WHEN $22::text = '' THEN NULL
+           ELSE COALESCE($22, owner_collected_type)
+         END,
          owner_collected_amount = COALESCE($23, owner_collected_amount),
          payment_method = COALESCE($24, payment_method),
          unit_id = COALESCE($25, unit_id),
@@ -1935,6 +2104,8 @@ router.put(
          beach_access_fees = COALESCE($32, beach_access_fees),
          currency = COALESCE($33, currency),
          exchange_rate = COALESCE($34, exchange_rate),
+         transfer_proof_path = COALESCE($35, transfer_proof_path),
+         transfer_proof_name = CASE WHEN $35::text IS NOT NULL THEN $36 ELSE transfer_proof_name END,
          updated_at = now()
        WHERE id = $27 RETURNING *`,
       [
@@ -1963,9 +2134,26 @@ router.put(
         b.broker_name ?? null,
         b.broker_amount_per_night !== undefined ? brokerPerNight : null,
         b.broker_amount_per_night !== undefined || b.broker_total !== undefined ? brokerTotal : null,
-        b.owner_collected_type !== undefined ? (b.owner_collected_type || null) : null,
-        b.owner_collected_amount !== undefined ? parseFloat(b.owner_collected_amount) || 0 : null,
-        b.payment_method ?? null,
+        // '' clears owner collection; undefined leaves it as is.
+        b.owner_collected_type !== undefined && b.owner_collected_type !== null
+          ? ['partial', 'full'].includes(String(b.owner_collected_type))
+            ? String(b.owner_collected_type)
+            : ''
+          : null,
+        (() => {
+          const type = b.owner_collected_type;
+          if (type === '') return 0;
+          // Full collection always equals the accommodation total (same rule as create).
+          if (type === 'full') {
+            const total =
+              b.total_amount != null && b.total_amount !== ''
+                ? parseFloat(b.total_amount)
+                : parseFloat(before.total_amount);
+            return Number.isFinite(total) ? total : 0;
+          }
+          return b.owner_collected_amount !== undefined ? parseFloat(b.owner_collected_amount) || 0 : null;
+        })(),
+        b.payment_method ? require('../../lib/paymentMethods').normalizePaymentMethod(b.payment_method) : null,
         b.unit_id ?? null,
         clearHold,
         req.params.id,
@@ -1985,11 +2173,13 @@ router.put(
           : null,
         money?.currency ?? null,
         money?.exchange_rate ?? null,
+        req.file?.path || req.file?.secure_url || null,
+        req.file?.originalname || null,
       ]
     );
     try {
       const { resyncReservationBlocks } = require('../../lib/reservationBlocks');
-      await resyncReservationBlocks(existing, rows[0]);
+      await resyncReservationBlocks(before, rows[0]);
     } catch (err) {
       console.warn('[reservations] block resync failed', err.message);
     }
@@ -1997,7 +2187,45 @@ router.put(
       const { finalizeOutsideChannelSplit } = require('../../services/otaIcalReservations');
       await finalizeOutsideChannelSplit(outsideFill);
     }
-    res.json(rows[0]);
+
+    let saved = rows[0];
+    const moneyChanged = [
+      'total_amount',
+      'down_payment',
+      'insurance',
+      'owner_collected_type',
+      'owner_collected_amount',
+      'payment_method',
+      'currency',
+      'exchange_rate',
+      'status',
+    ].some((key) => b[key] !== undefined);
+    if (saved && moneyChanged && !b.extend_stay && !b.fill_ota_details && b.amount_paid === undefined) {
+      try {
+        const { syncReservationPaymentStatus } = require('../../lib/syncReservationPayment');
+        saved = (await syncReservationPaymentStatus(saved.id)) || saved;
+        await refreshAwaitingCollection(saved);
+      } catch (err) {
+        console.warn('[reservations] payment refresh failed', err.message);
+      }
+    }
+
+    await logAudit({
+      userId: req.user.id,
+      action: 'UPDATE_RESERVATION',
+      entityType: 'reservation',
+      entityId: saved?.id || req.params.id,
+      details: {
+        guest_name: saved?.guest_name || before.guest_name || null,
+        unit_id: saved?.unit_id || before.unit_id || null,
+        check_in: saved?.check_in || before.check_in || null,
+        check_out: saved?.check_out || before.check_out || null,
+        status: saved?.status || before.status || null,
+        changes: reservationChanges(before, saved),
+        transfer_proof_replaced: Boolean(req.file),
+      },
+    });
+    res.json(saved);
   } catch (e) {
     next(e);
   }

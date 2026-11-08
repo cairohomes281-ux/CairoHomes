@@ -7,14 +7,14 @@ export const COMPOUNDS = [
     name: 'Zamalek',
     slug: 'zamalek',
     area: 'Zamalek',
-    image: unsplash('1643047277225-8e880846c17d'),
+    image: unsplash('1600585154340-be6161a56a0c'),
     match: /zamalek/i,
   },
   {
     name: 'Garden City',
     slug: 'garden-city',
     area: 'Garden City',
-    image: unsplash('1672838217253-eb798b7559bd'),
+    image: unsplash('1512917774080-9991f1c4c750'),
     match: /garden\s*city/i,
   },
   {

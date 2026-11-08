@@ -7,7 +7,7 @@ import api from '../api/axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
-import { currency, formatDate, nightsText, BOOKING_SOURCES, unitDisplay, unitSelectLabel } from '../utils/formatters';
+import { currency, formatDate, nightsText, unitDisplay, unitSelectLabel } from '../utils/formatters';
 import { usePermissions } from '../hooks/usePermissions';
 import { salesUsersForActor } from '../utils/permissions';
 import SearchableSelect from '../components/ui/SearchableSelect';
@@ -15,13 +15,12 @@ import AdminReservationDrawer from '../components/AdminReservationDrawer';
 import ManualReservationForm, {
   EMPTY_MANUAL_RESERVATION_FORM,
 } from '../components/ManualReservationForm';
-import ReservationCurrencyPicker from '../components/ReservationCurrencyPicker';
+import { reservationMoney } from '../utils/reservationCurrency';
 import {
-  fromEgpFormValues,
-  reservationCurrencyError,
-  reservationMoney,
-  toEgpPayload,
-} from '../utils/reservationCurrency';
+  buildReservationPayload,
+  reservationFormData,
+  reservationToForm,
+} from '../utils/reservationEditForm';
 import TransferReservationModal from '../components/TransferReservationModal';
 import ExtendStayModal, { isPlatformStay } from '../components/ExtendStayModal';
 import OtaDetailsModal, { otaDetailsNeeded } from '../components/OtaDetailsModal';
@@ -783,143 +782,6 @@ function ReservationDetailModal({
 }
 
 
-function editStayNights(checkIn, checkOut) {
-  if (!checkIn || !checkOut) return 0;
-  const n = Math.round((new Date(`${checkOut}T00:00:00`) - new Date(`${checkIn}T00:00:00`)) / 86400000);
-  return n > 0 ? n : 0;
-}
-
-function EditReservationModal({ open, onClose, editId, editForm, setEditForm, unitsList, usersList, onSave, saving }) {
-  const cur = ['EGP', 'USD', 'EUR', 'GBP', 'SAR', 'AED', 'KWD', 'QAR'].includes(
-    String(editForm.currency || '').toUpperCase()
-  )
-    ? String(editForm.currency).toUpperCase()
-    : 'EGP';
-  const nights = editStayNights(editForm.check_in, editForm.check_out);
-
-  const setPricePerNight = (value) => {
-    setEditForm((f) => {
-      const nextNights = editStayNights(f.check_in, f.check_out);
-      const nightly = parseFloat(value);
-      return {
-        ...f,
-        price_per_night: value,
-        total_amount:
-          nextNights > 0 && Number.isFinite(nightly)
-            ? String(Math.round(nightly * nextNights * 100) / 100)
-            : f.total_amount,
-      };
-    });
-  };
-
-  const setTotalAmount = (value) => {
-    setEditForm((f) => {
-      const nextNights = editStayNights(f.check_in, f.check_out);
-      const total = parseFloat(value);
-      return {
-        ...f,
-        total_amount: value,
-        price_per_night:
-          nextNights > 0 && Number.isFinite(total)
-            ? String(Math.round((total / nextNights) * 100) / 100)
-            : f.price_per_night,
-      };
-    });
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title={`Edit Reservation #${editId}`} size="lg"
-      footer={<>
-        <button onClick={onClose} className="btn-secondary">Cancel</button>
-        <button onClick={onSave} disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Save Changes'}</button>
-      </>}
-    >
-      <div className="space-y-4">
-        <div className="form-grid">
-          <div>
-            <label className="label">Unit *</label>
-            <SearchableSelect value={editForm.unit_id} onChange={v => setEditForm(f => ({ ...f, unit_id: v }))}
-              placeholder="Select…"
-              options={[{ value: '', label: 'Select…' }, ...unitsList.map(u => ({ value: String(u.id), label: unitSelectLabel(u) }))]}
-            />
-          </div>
-          <div><label className="label">Tenant Name *</label><input className="input" value={editForm.guest_name} onChange={e => setEditForm(f => ({ ...f, guest_name: e.target.value }))} /></div>
-          <div><label className="label">Phone</label><input className="input" value={editForm.guest_phone} onChange={e => setEditForm(f => ({ ...f, guest_phone: e.target.value }))} /></div>
-          <div>
-            <label className="label">Adults</label>
-            <input type="number" min="0" className="input" value={editForm.adults ?? '2'} onChange={e => setEditForm(f => ({ ...f, adults: e.target.value }))} />
-          </div>
-          <div>
-            <label className="label">Children</label>
-            <input type="number" min="0" className="input" value={editForm.children ?? '0'} onChange={e => setEditForm(f => ({ ...f, children: e.target.value }))} />
-          </div>
-          <div>
-            <label className="label">Nanny</label>
-            <input type="number" min="0" className="input" value={editForm.nanny_count ?? '0'} onChange={e => setEditForm(f => ({ ...f, nanny_count: e.target.value }))} />
-          </div>
-          <div>
-            <label className="label">Booking Source</label>
-            <SearchableSelect value={editForm.booking_source} onChange={v => setEditForm(f => ({ ...f, booking_source: v }))}
-              placeholder="Select…"
-              options={[{ value: '', label: 'Select…' }, ...BOOKING_SOURCES.map(s => ({ value: s, label: s }))]}
-            />
-          </div>
-          <div><label className="label">Check-in *</label><input type="date" className="input" value={editForm.check_in} onChange={e => setEditForm(f => ({ ...f, check_in: e.target.value }))} /></div>
-          <div><label className="label">Check-out *</label><input type="date" className="input" value={editForm.check_out} onChange={e => setEditForm(f => ({ ...f, check_out: e.target.value }))} /></div>
-          <div>
-            <label className="label">Status</label>
-            <SearchableSelect value={editForm.status} onChange={v => setEditForm(f => ({ ...f, status: v }))}
-              placeholder="Select…"
-              options={['confirmed','checked_in','checked_out','cancelled'].map(s => ({ value: s, label: s.replace(/_/g,' ') }))}
-            />
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-3">
-          <h4 className="text-sm font-semibold text-blue-900">Money</h4>
-          <ReservationCurrencyPicker form={editForm} setForm={setEditForm} />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div>
-              <label className="label">Nights</label>
-              <div className="input bg-white font-semibold">{nights || '—'}</div>
-            </div>
-            <div>
-              <label className="label">Price / night ({cur})</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className="input"
-                value={editForm.price_per_night}
-                onChange={(e) => setPricePerNight(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
-            <div>
-              <label className="label">Total ({cur})</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className="input"
-                value={editForm.total_amount}
-                onChange={(e) => setTotalAmount(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <input type="checkbox" id="owner_sched" checked={!!editForm.is_owner_reservation} onChange={e => setEditForm(f => ({ ...f, is_owner_reservation: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 text-primary-600" />
-          <label htmlFor="owner_sched" className="text-sm text-gray-700 font-medium">Owner Reservation</label>
-        </div>
-        <div><label className="label">Notes</label><textarea className="input resize-none" rows={2} value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} /></div>
-      </div>
-    </Modal>
-  );
-}
-
 
 function HoldModal({ open, onClose, prefillUnit, prefillCheckIn, prefillCheckOut, unitsList, onSave, saving }) {
   const [unitId,     setUnitId]     = useState('');
@@ -1081,16 +943,6 @@ function HoldDetailModal({ open, onClose, holdId, onConfirm, onDelete, deleting 
 }
 
 
-const EMPTY_EDIT = {
-  unit_id: '', guest_name: '', guest_email: '', guest_phone: '', guest_nationality: '',
-  adults: '2', children: '0', nanny_count: '0',
-  check_in: '', check_out: '', total_amount: '', price_per_night: '',
-  booking_source: '', sales_person_id: '', is_owner_reservation: false, is_hold: false,
-  status: 'confirmed', notes: '',
-  currency: 'EGP',
-  exchange_rate: '',
-};
-
 function BulkPriceModal({ open, onClose, unitCount, onSave, saving }) {
   const [price,     setPrice]     = useState('');
   const [applyTo,   setApplyTo]   = useState('day');
@@ -1229,7 +1081,11 @@ export default function Schedule() {
   
   const [editModal,         setEditModal]         = useState(false);
   const [editId,            setEditId]            = useState(null);
-  const [editForm,          setEditForm]          = useState(EMPTY_EDIT);
+  const [editForm,          setEditForm]          = useState({ ...EMPTY_MANUAL_RESERVATION_FORM });
+  const [editInitial,       setEditInitial]       = useState(null);
+  const [editOriginal,      setEditOriginal]      = useState(null);
+  const [editConfirmHold,   setEditConfirmHold]   = useState(false);
+  const [editProof,         setEditProof]         = useState(null);
 
   
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -1443,12 +1299,20 @@ export default function Schedule() {
   });
 
   const editMutation = useMutation({
-    mutationFn: () => api.put(`/reservations/${editId}`, toEgpPayload(editForm)),
+    mutationFn: (body) =>
+      api.put(
+        `/reservations/${editId}`,
+        body,
+        body instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['schedule'] });
+      qc.invalidateQueries({ queryKey: ['reservations'] });
+      qc.invalidateQueries({ queryKey: ['blocked-dates'] });
+      qc.invalidateQueries({ queryKey: ['manual-blocked-dates'] });
       qc.invalidateQueries({ queryKey: ['reservation-detail', editId] });
-      toast.success('Reservation updated');
-      setEditModal(false);
+      toast.success(editConfirmHold ? 'Reservation confirmed' : 'Reservation updated');
+      closeEdit();
     },
     onError: (e) => toast.error(e.response?.data?.error || 'Error saving'),
   });
@@ -1494,44 +1358,26 @@ export default function Schedule() {
   };
 
   const handleCreateReservation = () => {
-    if (!createForm.guest_phone?.trim()) return toast.error('Mobile number is required');
-    if (!createForm.is_owner_reservation && !createForm.sales_person_id) {
-      return toast.error('Please select a Sales Person or mark as Owner Reservation');
-    }
-    if (!createForm.unit_id || !createForm.check_in || !createForm.check_out) {
-      return toast.error('Unit and dates are required');
-    }
-    const adults = Math.max(0, parseInt(createForm.adults, 10) || 0);
-    const children = Math.max(0, parseInt(createForm.children, 10) || 0);
-    const nannyCount = Math.max(0, parseInt(createForm.nanny_count, 10) || 0);
-    if (!createForm.is_owner_reservation && adults < 1) {
-      return toast.error('At least 1 adult is required');
-    }
-    const currencyError = reservationCurrencyError(createForm);
-    if (currencyError) return toast.error(currencyError);
-    const payload = {
-      ...toEgpPayload(createForm),
-      adults,
-      children,
-      nanny_count: nannyCount,
-      beach_access_fees: createForm.is_owner_reservation
-        ? 0
-        : createForm.beach_access_fees !== '' && createForm.beach_access_fees != null
-          ? Number(createForm.beach_access_fees)
-          : undefined,
-    };
-    if (createProof) {
-      const fd = new FormData();
-      Object.entries(payload).forEach(([k, v]) => {
-        if (v !== '' && v !== null && v !== undefined) {
-          fd.append(k, typeof v === 'boolean' ? (v ? '1' : '0') : v);
-        }
-      });
-      fd.append('transfer_proof', createProof);
-      createReservationMutation.mutate(fd);
-    } else {
-      createReservationMutation.mutate(payload);
-    }
+    const { payload, error } = buildReservationPayload(createForm, { mode: 'create', salesLocked: !isAdmin });
+    if (error) return toast.error(error);
+    createReservationMutation.mutate(
+      createProof ? reservationFormData(payload, createProof) : payload
+    );
+  };
+
+  function closeEdit() {
+    setEditModal(false);
+    setEditProof(null);
+    setEditOriginal(null);
+    setEditConfirmHold(false);
+  }
+
+  const handleSaveEdit = () => {
+    const { payload, error } = buildReservationPayload(editForm, { mode: 'edit', salesLocked: !isAdmin });
+    if (error) return toast.error(error);
+    editMutation.mutate(
+      editProof ? reservationFormData(payload, editProof, { keepEmpty: true }) : payload
+    );
   };
 
   const deleteHoldMutation = useMutation({
@@ -1849,28 +1695,24 @@ export default function Schedule() {
   }, [canManageReservations]);
 
   const openEditFromDetail = useCallback(async (res) => {
+    // Holds are flagged on the schedule row; the detail row only carries hold_expires_at.
+    const isHold = !!(res.is_hold || res.status === 'hold');
     try {
-      const isHold = !!(res.is_hold || res.status === 'hold');
-      setEditForm(fromEgpFormValues({
-        unit_id: res.unit_id, guest_name: isHold && res.guest_name === 'Hold' ? '' : (res.guest_name || ''),
-        guest_email: res.guest_email || '',
-        guest_phone: res.guest_phone || '', guest_nationality: res.guest_nationality || '',
-        adults: res.adults != null ? String(res.adults) : '2',
-        children: res.children != null ? String(res.children) : '0',
-        nanny_count: res.nanny_count != null ? String(res.nanny_count) : '0',
-        check_in: normDate(res.check_in), check_out: normDate(res.check_out),
-        total_amount: isHold ? '' : (res.total_amount ?? ''),
-        price_per_night: res.price_per_night || '',
-        booking_source: res.booking_source || '', sales_person_id: res.sales_person_id || '',
-        is_owner_reservation: !!res.is_owner_reservation,
-        is_hold: isHold ? false : undefined,
-        status: isHold ? 'confirmed' : res.status,
-        notes: res.notes || '',
-      }, res));
+      // Load the full row so every field (insurance, broker, proof, audit info…) is editable.
+      const { data } = await api.get(`/reservations/${res.id}`);
+      const full = data || res;
+      const values = reservationToForm(full, { confirmHold: isHold });
+      setEditForm(values);
+      setEditInitial(values);
+      setEditOriginal(full);
+      setEditConfirmHold(isHold);
+      setEditProof(null);
       setEditId(res.id);
-      setHoldDetailModal(false); 
+      setHoldDetailModal(false);
       setEditModal(true);
-    } catch { toast.error('Failed to load reservation'); }
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to load reservation');
+    }
   }, []);
 
   const bulkPriceMutation = useMutation({
@@ -2886,21 +2728,35 @@ export default function Schedule() {
         }}
       />
 
-      <EditReservationModal
+      <AdminReservationDrawer
         open={editModal}
-        onClose={() => setEditModal(false)}
-        editId={editId}
-        editForm={editForm}
-        setEditForm={setEditForm}
-        unitsList={bookableUnitsList}
-        usersList={salesUsers}
-        saving={editMutation.isPending}
-        onSave={() => {
-          const currencyError = reservationCurrencyError(editForm);
-          if (currencyError) return toast.error(currencyError);
-          editMutation.mutate();
-        }}
-      />
+        onClose={closeEdit}
+        title={editConfirmHold ? `Confirm hold #${editId}` : `Edit reservation #${editId}`}
+        subtitle={
+          [editOriginal?.guest_name, editOriginal?.unit_name].filter(Boolean).join(' · ') ||
+          'Change any detail, then save'
+        }
+      >
+        <ManualReservationForm
+          key={`edit-${editId}`}
+          mode="edit"
+          original={editOriginal}
+          initialForm={editInitial}
+          confirmingHold={editConfirmHold}
+          form={editForm}
+          setForm={setEditForm}
+          units={unitsList}
+          users={salesUsers}
+          transferProof={editProof}
+          onTransferProofChange={setEditProof}
+          lockSalesPerson={!isAdmin}
+          currentUserName={user?.full_name || user?.username || ''}
+          allowPastDates
+          onCancel={closeEdit}
+          onSubmit={handleSaveEdit}
+          submitting={editMutation.isPending}
+        />
+      </AdminReservationDrawer>
 
       <HoldModal
         open={holdModal}

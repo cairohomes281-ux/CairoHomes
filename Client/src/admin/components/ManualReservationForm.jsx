@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, Upload } from 'lucide-react';
+import { ChevronDown, FileText, RotateCcw, Upload } from 'lucide-react';
 import api from '../api/axios';
 import ListingDatePicker, {
   isoToLocalDate,
@@ -16,10 +16,27 @@ import {
   BOOKING_SOURCES,
   MANUAL_PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
+  formatDate,
+  formatDateTime,
   unitSelectLabel,
 } from '../utils/formatters';
 import { occupancyFromRanges } from '../../utils/stayNights';
 import ReservationCurrencyPicker from './ReservationCurrencyPicker';
+import { reservationMoney } from '../utils/reservationCurrency';
+import { changedFieldLabels } from '../utils/reservationEditForm';
+
+const STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'checked_in', label: 'Checked in' },
+  { value: 'checked_out', label: 'Checked out' },
+];
+
+const PAYMENT_STATUS_STYLES = {
+  paid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  partial: 'bg-amber-50 text-amber-800 border-amber-200',
+  pending: 'bg-rose-50 text-rose-700 border-rose-200',
+};
 
 const money = (value) =>
   `EGP ${Number(value || 0).toLocaleString('en-EG', {
@@ -59,6 +76,11 @@ export const EMPTY_MANUAL_RESERVATION_FORM = {
   exchange_rate: '',
 };
 
+/** Amount already collected on a stored reservation, in EGP. */
+function reservationAmountPaid(r) {
+  return Math.max(0, Number(r?.amount_paid) || 0);
+}
+
 function Label({ children }) {
   return (
     <p className="mb-1.5 block text-[11.5px] font-bold uppercase tracking-wider text-[#5b6b80]">
@@ -80,14 +102,32 @@ export default function ManualReservationForm({
   onCancel,
   onSubmit,
   submitting = false,
+  /** 'create' (default) or 'edit'. */
+  mode = 'create',
+  /** Full stored reservation row when editing (from GET /reservations/:id). */
+  original = null,
+  /** Form values the edit started from, for the "what changed" summary. */
+  initialForm = null,
+  /** Editing a hold to turn it into a confirmed reservation. */
+  confirmingHold = false,
 }) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const { canReserveLongTermUnits } = usePermissions();
-  const bookableUnits = useMemo(
-    () =>
-      canReserveLongTermUnits ? units : units.filter((unit) => unit.listing_type !== 'long_term'),
-    [units, canReserveLongTermUnits]
+  const isEdit = mode === 'edit';
+  const editId = isEdit ? original?.id : null;
+  const [showAdvanced, setShowAdvanced] = useState(
+    () => isEdit && Boolean(form.owner_collected_type)
   );
+  const { canReserveLongTermUnits, isAdmin } = usePermissions();
+  const bookableUnits = useMemo(() => {
+    const list = canReserveLongTermUnits
+      ? units
+      : units.filter((unit) => unit.listing_type !== 'long_term');
+    // Keep the reservation's current unit selectable even if it is filtered out.
+    if (isEdit && form.unit_id && !list.some((u) => String(u.id) === String(form.unit_id))) {
+      const current = units.find((u) => String(u.id) === String(form.unit_id));
+      if (current) return [current, ...list];
+    }
+    return list;
+  }, [units, canReserveLongTermUnits, isEdit, form.unit_id]);
   const selectedUnit = units.find((unit) => String(unit.id) === String(form.unit_id));
   // Staff bookings skip the project minimum stay; long-term units keep their own (holds/owner stays exempt).
   const minNights =
@@ -96,10 +136,13 @@ export default function ManualReservationForm({
       : 1;
 
   const { data: reservedRanges = [], isLoading: availabilityLoading } = useQuery({
-    queryKey: ['manual-blocked-dates', form.unit_id],
+    queryKey: ['manual-blocked-dates', form.unit_id, editId || null],
     queryFn: () =>
       api
-        .get('/reservations/blocked-dates', { params: { unit_id: form.unit_id } })
+        .get('/reservations/blocked-dates', {
+          // When editing, the reservation's own nights must stay pickable.
+          params: { unit_id: form.unit_id, exclude_id: editId || undefined },
+        })
         .then((r) => r.data),
     enabled: Boolean(form.unit_id),
     staleTime: 30_000,
@@ -158,28 +201,72 @@ export default function ManualReservationForm({
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     })}`;
-  // Beach access is priced in EGP; show it in the reservation currency.
-  const beachInCurrency = fxRate > 0 ? beachAccessFees / fxRate : 0;
   const total = Number(form.total_amount) || 0;
   const downPayment = Number(form.down_payment) || 0;
   const insurance = Number(form.insurance) || 0;
   const ownerCollected = Number(form.owner_collected_amount) || 0;
   const brokerPerNight = Number(form.broker_amount_per_night) || 0;
   const brokerTotal = brokerPerNight * nights;
-  const fullBill = Math.round((total + beachInCurrency + insurance) * 100) / 100;
-  let toCollect = fullBill - downPayment;
-  if (form.owner_collected_type === 'full') toCollect = insurance - downPayment;
-  if (form.owner_collected_type === 'partial') toCollect = fullBill - ownerCollected - downPayment;
-  toCollect = Math.max(0, toCollect);
+
+  // Beach access fee: 'auto' follows the unit rules; 'stored' keeps the saved
+  // value of an edited reservation until the stay changes; 'manual' is an admin override.
+  const [beachMode, setBeachMode] = useState(isEdit ? 'stored' : 'auto');
+  const stayKey = `${form.unit_id}|${nights}|${adultsCount}|${childrenCount}|${form.is_owner_reservation ? 1 : 0}`;
+  const firstStayKey = useRef(stayKey);
+  useEffect(() => {
+    if (beachMode === 'stored' && stayKey !== firstStayKey.current) setBeachMode('auto');
+  }, [stayKey, beachMode]);
 
   useEffect(() => {
+    if (beachMode !== 'auto') return;
     const next = form.is_owner_reservation ? 0 : beachAccessFees;
     setForm((cur) =>
       Number(cur.beach_access_fees) === next
         ? cur
         : { ...cur, beach_access_fees: String(next) }
     );
-  }, [beachAccessFees, form.is_owner_reservation, setForm]);
+  }, [beachAccessFees, form.is_owner_reservation, setForm, beachMode]);
+
+  // Fee actually on the bill (EGP), whichever mode is active.
+  const billedBeachEgp = form.is_owner_reservation
+    ? 0
+    : beachMode === 'auto'
+      ? beachAccessFees
+      : Number(form.beach_access_fees) || 0;
+  const billedBeach = fxRate > 0 ? billedBeachEgp / fxRate : 0;
+  const fullBill = Math.round((total + billedBeach + insurance) * 100) / 100;
+  let toCollect = fullBill - downPayment;
+  if (form.owner_collected_type === 'full') toCollect = insurance - downPayment;
+  if (form.owner_collected_type === 'partial') toCollect = fullBill - ownerCollected - downPayment;
+  toCollect = Math.max(0, toCollect);
+  const alreadyPaid = isEdit ? reservationAmountPaid(original) : 0;
+  const changes = useMemo(
+    () => (isEdit ? changedFieldLabels(initialForm, form) : []),
+    [isEdit, initialForm, form]
+  );
+  const salesOptions = useMemo(() => {
+    const list = users.map((user) => ({ value: String(user.id), label: user.full_name }));
+    if (
+      form.sales_person_id &&
+      !list.some((o) => o.value === String(form.sales_person_id)) &&
+      original?.sales_person_name
+    ) {
+      list.unshift({ value: String(form.sales_person_id), label: original.sales_person_name });
+    }
+    return [{ value: '', label: 'None' }, ...list];
+  }, [users, form.sales_person_id, original]);
+  const sourceOptions = useMemo(() => {
+    const list = BOOKING_SOURCES.map((source) => ({ value: source, label: source }));
+    if (form.booking_source && !BOOKING_SOURCES.includes(form.booking_source)) {
+      list.unshift({ value: form.booking_source, label: form.booking_source });
+    }
+    return [{ value: '', label: 'Select source…' }, ...list];
+  }, [form.booking_source]);
+  const datesMoved =
+    isEdit &&
+    initialForm &&
+    (form.check_in !== initialForm.check_in || form.check_out !== initialForm.check_out);
+  const unitMoved = isEdit && initialForm && String(form.unit_id) !== String(initialForm.unit_id);
 
   function setPricePerNight(value) {
     const rate = Number(value);
@@ -212,6 +299,11 @@ export default function ManualReservationForm({
   }
 
   function selectUnit(value) {
+    if (isEdit) {
+      // Editing: keep dates and agreed price; the server re-checks availability on save.
+      setForm((cur) => ({ ...cur, unit_id: value }));
+      return;
+    }
     setForm((cur) => ({
       ...cur,
       unit_id: value,
@@ -222,9 +314,99 @@ export default function ManualReservationForm({
     }));
   }
 
+  function resetDates() {
+    if (!initialForm) return;
+    setForm((cur) => ({
+      ...cur,
+      check_in: initialForm.check_in,
+      check_out: initialForm.check_out,
+    }));
+  }
+
+  // Keep the total in step when the stay length changes (edit mode only;
+  // create mode always picks dates before prices).
+  const prevNights = useRef(nights);
+  useEffect(() => {
+    if (!isEdit) return;
+    if (prevNights.current === nights) return;
+    prevNights.current = nights;
+    const rate = Number(form.price_per_night);
+    if (nights > 0 && rate > 0) {
+      setForm((cur) => ({ ...cur, total_amount: (rate * nights).toFixed(2) }));
+    }
+  }, [isEdit, nights, form.price_per_night, setForm]);
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
       <div className="space-y-5">
+          {isEdit && original && (
+            <div className="rounded-[12px] border border-[#e6ebf2] bg-[#f6f8fb] p-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="rounded-full border border-[#d6e2f5] bg-white px-2.5 py-1 font-semibold text-[#1e5fbf]">
+                  #{original.id}
+                </span>
+                <span
+                  className={`rounded-full border px-2.5 py-1 font-semibold capitalize ${
+                    PAYMENT_STATUS_STYLES[original.payment_status] || PAYMENT_STATUS_STYLES.pending
+                  }`}
+                >
+                  Payment: {original.payment_status || 'pending'}
+                </span>
+                <span className="rounded-full border border-[#e6ebf2] bg-white px-2.5 py-1 font-semibold text-[#0f1c2e]">
+                  Collected {reservationMoney(alreadyPaid, original)}
+                </span>
+                {original.booking_id && (
+                  <span className="rounded-full border border-[#e6ebf2] bg-white px-2.5 py-1 font-semibold text-[#5b6b80]">
+                    Website booking
+                  </span>
+                )}
+              </div>
+              <p className="mt-2.5 text-[12px] text-[#5b6b80]">
+                Created {original.created_at ? formatDateTime(original.created_at) : '—'}
+                {original.created_by_name ? ` by ${original.created_by_name}` : ''}
+                {original.updated_at ? ` · last updated ${formatDateTime(original.updated_at)}` : ''}
+              </p>
+              <div className="mt-3">
+                <Label>Reservation status</Label>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[...STATUS_OPTIONS, ...(isAdmin ? [{ value: 'cancelled', label: 'Cancelled' }] : [])].map(
+                    (opt) => {
+                      const active = (form.status || 'pending') === opt.value;
+                      const danger = opt.value === 'cancelled';
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setForm((cur) => ({ ...cur, status: opt.value }))}
+                          className={`rounded-[10px] border px-3 py-2 text-[13px] font-semibold transition ${
+                            active
+                              ? danger
+                                ? 'border-rose-500 bg-rose-50 text-rose-700'
+                                : 'border-[#1e5fbf] bg-[#eef4ff] text-[#1e5fbf]'
+                              : 'border-[#e6ebf2] bg-white text-[#5b6b80] hover:bg-white/60'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    }
+                  )}
+                </div>
+                {form.status === 'cancelled' && original.status !== 'cancelled' && (
+                  <p className="mt-2 rounded-[10px] bg-rose-50 px-3 py-2 text-[12px] text-rose-800">
+                    Saving as cancelled frees the dates right away and skips the cancellation
+                    request / refund flow. Use the cancel action instead if a refund is involved.
+                  </p>
+                )}
+                {confirmingHold && (
+                  <p className="mt-2 rounded-[10px] bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                    Confirming this hold: fill in the guest and price, then save to turn it into a reservation.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           <div>
             <Label>Unit <span className="text-[#ff7a59]">*</span></Label>
             <SearchableSelect
@@ -239,10 +421,39 @@ export default function ManualReservationForm({
                 })),
               ]}
             />
+            {unitMoved && (
+              <p className="mt-2 rounded-[10px] bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                Moving to a different unit keeps the current price. Use <strong>Move unit</strong> from the
+                reservation details if you want the new unit's rates and a price difference.
+              </p>
+            )}
           </div>
 
           <div>
-            <Label>Check-in / Check-out <span className="text-[#ff7a59]">*</span></Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label>Check-in / Check-out <span className="text-[#ff7a59]">*</span></Label>
+              {datesMoved && (
+                <button
+                  type="button"
+                  onClick={resetDates}
+                  className="mb-1.5 inline-flex items-center gap-1 text-[12px] font-semibold text-[#1e5fbf] hover:underline"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> Original dates
+                </button>
+              )}
+            </div>
+            {isEdit && initialForm?.check_in && (
+              <p className="mb-2 text-[12px] text-[#5b6b80]">
+                Booked: <strong className="text-[#0f1c2e]">{formatDate(initialForm.check_in)}</strong> →{' '}
+                <strong className="text-[#0f1c2e]">{formatDate(initialForm.check_out)}</strong>
+                {datesMoved && form.check_in && form.check_out && (
+                  <>
+                    {' '}· New: <strong className="text-[#1e5fbf]">{formatDate(form.check_in)}</strong> →{' '}
+                    <strong className="text-[#1e5fbf]">{formatDate(form.check_out)}</strong>
+                  </>
+                )}
+              </p>
+            )}
             {form.unit_id ? (
               <>
                 <ListingDatePicker
@@ -424,15 +635,45 @@ export default function ManualReservationForm({
             </div>
           )}
 
-          {selectedUnit && !form.is_owner_reservation && beachAccessFees > 0 && (
+          {selectedUnit &&
+            !form.is_owner_reservation &&
+            (beachAccessFees > 0 || billedBeachEgp > 0 || isAdmin) && (
             <div className="rounded-[10px] border border-[#e6ebf2] bg-white px-3 py-2.5 text-xs text-[#5b6b80]">
               <div className="flex items-center justify-between gap-3">
-                <span className="font-semibold text-[#0f1c2e]">Beach access</span>
-                <strong className="tabular-nums text-[#0f1c2e]">
-                  {currencyCode !== 'EGP'
-                    ? `${formMoney(beachInCurrency)} (${money(beachAccessFees)})`
-                    : money(beachAccessFees)}
-                </strong>
+                <span className="font-semibold text-[#0f1c2e]">
+                  Beach access
+                  {beachMode === 'manual' && (
+                    <span className="ml-2 rounded-full bg-purple-50 px-2 py-0.5 text-[10.5px] font-bold uppercase text-purple-700">
+                      Override
+                    </span>
+                  )}
+                  {beachMode === 'stored' && (
+                    <span className="ml-2 rounded-full bg-[#f6f8fb] px-2 py-0.5 text-[10.5px] font-bold uppercase text-[#5b6b80]">
+                      Saved
+                    </span>
+                  )}
+                </span>
+                {beachMode === 'manual' ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="font-semibold">EGP</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.beach_access_fees}
+                      onChange={(e) =>
+                        setForm((cur) => ({ ...cur, beach_access_fees: e.target.value }))
+                      }
+                      className="w-28 rounded-[8px] border border-[#e6ebf2] px-2 py-1 text-right text-sm text-[#0f1c2e] outline-none focus:border-[#1e5fbf]"
+                    />
+                  </span>
+                ) : (
+                  <strong className="tabular-nums text-[#0f1c2e]">
+                    {currencyCode !== 'EGP'
+                      ? `${formMoney(billedBeach)} (${money(billedBeachEgp)})`
+                      : money(billedBeachEgp)}
+                  </strong>
+                )}
               </div>
               <p className="mt-1.5 leading-5">
                 {beachIsFlat
@@ -440,7 +681,30 @@ export default function ManualReservationForm({
                   : `Adults × ${money(beachFeeInfo.beach?.adult || 0)} + children × ${money(
                       beachFeeInfo.beach?.extra || 0
                     )} (nanny excluded).`}
+                {beachMode !== 'auto' && Math.abs(billedBeachEgp - beachAccessFees) > 0.5 && (
+                  <> Current rules give {money(beachAccessFees)}.</>
+                )}
               </p>
+              <div className="mt-1.5 flex flex-wrap gap-3">
+                {beachMode !== 'auto' && (
+                  <button
+                    type="button"
+                    onClick={() => setBeachMode('auto')}
+                    className="font-semibold text-[#1e5fbf] hover:underline"
+                  >
+                    Recalculate from unit rules
+                  </button>
+                )}
+                {isAdmin && beachMode !== 'manual' && (
+                  <button
+                    type="button"
+                    onClick={() => setBeachMode('manual')}
+                    className="font-semibold text-purple-700 hover:underline"
+                  >
+                    Set a custom amount
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -456,10 +720,7 @@ export default function ManualReservationForm({
                 value={form.booking_source}
                 onChange={(value) => setForm((cur) => ({ ...cur, booking_source: value }))}
                 placeholder="Select source…"
-                options={[
-                  { value: '', label: 'Select source…' },
-                  ...BOOKING_SOURCES.map((source) => ({ value: source, label: source })),
-                ]}
+                options={sourceOptions}
               />
             </div>
             <div>
@@ -473,10 +734,7 @@ export default function ManualReservationForm({
                   value={form.sales_person_id}
                   onChange={(value) => setForm((cur) => ({ ...cur, sales_person_id: value }))}
                   placeholder="Select salesperson…"
-                  options={[
-                    { value: '', label: 'None' },
-                    ...users.map((user) => ({ value: String(user.id), label: user.full_name })),
-                  ]}
+                  options={salesOptions}
                 />
               )}
             </div>
@@ -660,9 +918,27 @@ export default function ManualReservationForm({
 
           <div>
             <Label>Transfer proof</Label>
+            {isEdit && original?.transfer_proof_path && (
+              <a
+                href={original.transfer_proof_path}
+                target="_blank"
+                rel="noreferrer"
+                className="mb-2 flex items-center gap-2 rounded-[10px] border border-[#e6ebf2] bg-[#f6f8fb] px-3 py-2 text-sm font-semibold text-[#1e5fbf] hover:bg-[#eef4ff]"
+              >
+                <FileText className="h-4 w-4" />
+                <span className="truncate">
+                  Current: {original.transfer_proof_name || 'view file'}
+                </span>
+              </a>
+            )}
             <label className="flex cursor-pointer items-center gap-3 rounded-[10px] border border-dashed border-[#e6ebf2] px-3 py-2.5 text-sm text-[#5b6b80] hover:border-[#1e5fbf] hover:bg-[#eef4ff]">
               <Upload className="h-4 w-4" />
-              <span>{transferProof?.name || 'Upload image or PDF (optional)'}</span>
+              <span>
+                {transferProof?.name ||
+                  (isEdit && original?.transfer_proof_path
+                    ? 'Replace with a new image or PDF'
+                    : 'Upload image or PDF (optional)')}
+              </span>
               <input
                 type="file"
                 accept="image/*,.pdf"
@@ -677,13 +953,13 @@ export default function ManualReservationForm({
               <span className="text-[#5b6b80]">Accommodation ({nights || '—'} nights)</span>
               <strong className="text-[#0f1c2e]">{nights ? formMoney(total) : '—'}</strong>
             </div>
-            {beachAccessFees > 0 && (
+            {billedBeach > 0 && (
               <div className="flex justify-between py-1">
                 <span className="text-[#5b6b80]">
                   Beach access
                   {!beachIsFlat && childrenCount > 0 ? ' (incl. extra guests)' : ''}
                 </span>
-                <strong className="text-[#0f1c2e]">{formMoney(beachInCurrency)}</strong>
+                <strong className="text-[#0f1c2e]">{formMoney(billedBeach)}</strong>
               </div>
             )}
             {insurance > 0 && (
@@ -706,6 +982,11 @@ export default function ManualReservationForm({
               <span className="font-semibold text-[#0f1c2e]">Still to collect</span>
               <strong className="text-base text-[#1e5fbf]">{formMoney(toCollect)}</strong>
             </div>
+            {isEdit && alreadyPaid > 0 && (
+              <p className="mt-1 text-right text-xs text-[#5b6b80]">
+                {reservationMoney(alreadyPaid, original)} already recorded in payments.
+              </p>
+            )}
             {currencyCode !== 'EGP' && fxRate > 0 && fullBill > 0 && (
               <p className="mt-2 text-right text-xs text-[#5b6b80]">
                 ≈ {money(fullBill * fxRate)} at {fxRate} EGP / {currencyCode}
@@ -713,14 +994,43 @@ export default function ManualReservationForm({
             )}
           </div>
 
+          {isEdit && (
+            <div
+              className={`rounded-[10px] border px-3 py-2.5 text-[12.5px] ${
+                changes.length
+                  ? 'border-[#d6e2f5] bg-[#eef4ff] text-[#16489a]'
+                  : 'border-[#e6ebf2] bg-[#f6f8fb] text-[#5b6b80]'
+              }`}
+            >
+              {changes.length ? (
+                <>
+                  <strong>
+                    {changes.length} change{changes.length === 1 ? '' : 's'}:
+                  </strong>{' '}
+                  {changes.join(', ')}
+                </>
+              ) : (
+                'No changes yet.'
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-3 pt-2">
             <button
               type="button"
               onClick={onSubmit}
-              disabled={submitting}
+              disabled={
+                submitting || (isEdit && !confirmingHold && !changes.length && !transferProof)
+              }
               className="rounded-[12px] bg-[#1e5fbf] px-6 py-3 font-semibold text-white hover:bg-[#16489a] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? 'Saving…' : 'Create reservation'}
+              {submitting
+                ? 'Saving…'
+                : confirmingHold
+                  ? 'Confirm reservation'
+                  : isEdit
+                    ? 'Save changes'
+                    : 'Create reservation'}
             </button>
             <button
               type="button"
@@ -732,7 +1042,9 @@ export default function ManualReservationForm({
           </div>
 
           <p className="text-[12.5px] text-[#5b6b80]">
-            These dates will immediately block the unit calendar after the reservation is created.
+            {isEdit
+              ? 'Date or unit changes re-check availability and update the unit calendar when you save.'
+              : 'These dates will immediately block the unit calendar after the reservation is created.'}
           </p>
       </div>
     </div>

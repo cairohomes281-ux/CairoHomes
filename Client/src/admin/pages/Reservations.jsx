@@ -20,7 +20,6 @@ import IdDocumentPreviewModal from '../components/IdDocumentPreviewModal';
 import { idDocumentThumbUrl, isPdfUrl } from '../utils/idDocuments';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import SortTh from '../components/ui/SortTh';
-import BookingCalendar from '../components/ui/BookingCalendar';
 import { currency, formatDate, formatDateTime, nightsText, BOOKING_SOURCES, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, MANUAL_PAYMENT_METHODS, unitDisplay, unitSelectLabel } from '../utils/formatters';
 import { calcReservationFinancials } from '../utils/commission';
 import { isoDateOnly } from '../../utils/stayNights';
@@ -29,13 +28,15 @@ import AdminReservationDrawer from '../components/AdminReservationDrawer';
 import ManualReservationForm from '../components/ManualReservationForm';
 import ReservationCurrencyPicker from '../components/ReservationCurrencyPicker';
 import {
-  fromEgpFormValues,
   reservationCurrencyCode,
-  reservationCurrencyError,
   reservationMoney,
   reservationRate,
-  toEgpPayload,
 } from '../utils/reservationCurrency';
+import {
+  buildReservationPayload,
+  reservationFormData,
+  reservationToForm,
+} from '../utils/reservationEditForm';
 import TransferReservationModal from '../components/TransferReservationModal';
 import { ChannelBadge, ChannelTabs } from '../components/ReservationChannels';
 import WebsiteBookingRequests from '../components/WebsiteBookingRequests';
@@ -99,11 +100,6 @@ export const EMPTY_FORM = {
 };
 const EMPTY_PMT = { amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', reference_number: '', notes: '' };
 
-function calcNights(checkIn, checkOut) {
-  if (!checkIn || !checkOut) return 0;
-  const d = Math.round((new Date(checkOut) - new Date(checkIn)) / 86400000);
-  return d > 0 ? d : 0;
-}
 
 /** Full stay bill (accommodation + fees), not accommodation-only. */
 function reservationFullBill(r) {
@@ -119,364 +115,6 @@ function reservationFullBill(r) {
   const lineSum = Math.round((accommodation + beachFees + ins) * 100) / 100;
   if (accommodation > 0 && Math.abs(storedTotal - accommodation) <= 0.5) return lineSum;
   return Math.max(storedTotal, lineSum);
-}
-
-export function ReservationForm({ form, setForm, units, users, isNew, transferProof, onTransferProofChange, editId, allowPastDates, lockSalesPerson = false, currentUserName = '' }) {
-  
-  const selectedUnit = units.find(u => String(u.id) === String(form.unit_id));
-  const cur = ['EGP', 'USD', 'EUR', 'GBP', 'SAR', 'AED', 'KWD', 'QAR'].includes(
-    String(form.currency || '').toUpperCase()
-  )
-    ? String(form.currency).toUpperCase()
-    : 'EGP';
-
-  useEffect(() => {
-    if (selectedUnit && isNew && !form.price_per_night) {
-      setForm(f => ({ ...f, price_per_night: selectedUnit.price_per_night || '' }));
-    }
-  }, [form.unit_id]);
-
-  
-  const nights = calcNights(form.check_in, form.check_out);
-
-  
-  useEffect(() => {
-    if (nights > 0 && form.price_per_night) {
-      const total = nights * parseFloat(form.price_per_night);
-      setForm(f => ({ ...f, total_amount: total.toFixed(2) }));
-    }
-  }, [nights, form.price_per_night]);
-
-  const total = parseFloat(form.total_amount) || 0;
-  const downPmt = parseFloat(form.down_payment) || 0;
-  const ins     = parseFloat(form.insurance) || 0;
-  const ownerCollectedAmt = parseFloat(form.owner_collected_amount) || 0;
-
-  
-  let amountToPay;
-  if (form.owner_collected_type === 'full') {
-    
-    amountToPay = ins - downPmt;
-  } else if (form.owner_collected_type === 'partial') {
-    amountToPay = total - ownerCollectedAmt - downPmt;
-  } else {
-    amountToPay = total - downPmt;
-  }
-
-  return (
-    <div className="space-y-5">
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="label">Unit *</label>
-          <SearchableSelect
-            value={form.unit_id} onChange={v => setForm(f => ({ ...f, unit_id: v, price_per_night: '' }))}
-            placeholder="Select unit…"
-            options={[{ value: '', label: 'Select unit…' }, ...units.map(u => ({ value: String(u.id), label: unitSelectLabel(u) }))]}
-          />
-        </div>
-        <div>
-          <label className="label">Booking Source</label>
-          <SearchableSelect
-            value={form.booking_source} onChange={v => setForm(f => ({ ...f, booking_source: v }))}
-            placeholder="Select source…"
-            options={[{ value: '', label: 'Select source…' }, ...BOOKING_SOURCES.map(s => ({ value: s, label: s }))]}
-          />
-        </div>
-        <div><label className="label">Tenant Name *</label><input className="input" value={form.guest_name} onChange={e => setForm(f => ({ ...f, guest_name: e.target.value }))} placeholder="Full name" /></div>
-        <div><label className="label">Mobile No. *</label><input className="input" value={form.guest_phone} onChange={e => setForm(f => ({ ...f, guest_phone: e.target.value }))} placeholder="+20..." /></div>
-        <div><label className="label">Email</label><input type="email" className="input" value={form.guest_email} onChange={e => setForm(f => ({ ...f, guest_email: e.target.value }))} /></div>
-        <div><label className="label">Nationality</label><input className="input" value={form.guest_nationality} onChange={e => setForm(f => ({ ...f, guest_nationality: e.target.value }))} /></div>
-        <div>
-          <label className="label">Adults {!form.is_owner_reservation ? '*' : ''}</label>
-          <input type="number" min="0" className="input" value={form.adults ?? '2'} onChange={e => setForm(f => ({ ...f, adults: e.target.value }))} />
-        </div>
-        <div>
-          <label className="label">Children</label>
-          <input type="number" min="0" className="input" value={form.children ?? '0'} onChange={e => setForm(f => ({ ...f, children: e.target.value }))} />
-        </div>
-        <div>
-          <label className="label">Nanny</label>
-          <input type="number" min="0" className="input" value={form.nanny_count ?? '0'} onChange={e => setForm(f => ({ ...f, nanny_count: e.target.value }))} />
-          {selectedUnit?.guests != null && (
-            <p className="mt-1 text-[11px] text-gray-400">
-              Capacity {selectedUnit.guests}
-              {selectedUnit.has_nanny_room ? ' (incl. nanny room)' : ''}. Nanny excluded from beach access.
-            </p>
-          )}
-        </div>
-      </div>
-
-      
-      <div>
-        <label className="label mb-2">Dates *</label>
-        {allowPastDates ? (
-          
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label text-xs text-gray-500">Check-in *</label>
-              <input
-                type="date"
-                className="input"
-                value={form.check_in}
-                onChange={e => setForm(f => ({ ...f, check_in: e.target.value, check_out: f.check_out && e.target.value >= f.check_out ? '' : f.check_out }))}
-              />
-            </div>
-            <div>
-              <label className="label text-xs text-gray-500">Check-out *</label>
-              <input
-                type="date"
-                className="input"
-                value={form.check_out}
-                min={form.check_in ? form.check_in : undefined}
-                onChange={e => setForm(f => ({ ...f, check_out: e.target.value }))}
-              />
-            </div>
-            <p className="col-span-2 text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-              ⚠️ Past dates allowed — please verify there are no conflicts
-            </p>
-          </div>
-        ) : (
-          
-          <BookingCalendar
-            checkIn={form.check_in}
-            checkOut={form.check_out}
-            onChange={(ci, co) => setForm(f => ({ ...f, check_in: ci, check_out: co }))}
-            unitId={form.unit_id}
-            excludeId={editId}
-          />
-        )}
-        <input type="hidden" value={form.check_in} />
-        <input type="hidden" value={form.check_out} />
-      </div>
-
-      
-      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 space-y-3">
-        <h4 className="text-sm font-semibold text-blue-900">💰 Financial Details</h4>
-        <ReservationCurrencyPicker form={form} setForm={setForm} />
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <div>
-            <label className="label">Price per Night ({cur}) *</label>
-            <input type="number" min="0" step="0.01" className="input" value={form.price_per_night}
-              onChange={e => setForm(f => ({ ...f, price_per_night: e.target.value }))} placeholder="0.00" />
-          </div>
-          <div>
-            <label className="label">Total Amount ({cur}) <span className="text-blue-400 text-xs">(auto)</span></label>
-            <input type="number" min="0" step="0.01" className="input bg-blue-50" value={form.total_amount}
-              onChange={e => setForm(f => ({ ...f, total_amount: e.target.value }))} placeholder="0.00" />
-          </div>
-          <div>
-            <label className="label">Down Payment collected by us ({cur})</label>
-            <input type="number" min="0" step="0.01" className="input" value={form.down_payment}
-              onChange={e => setForm(f => ({ ...f, down_payment: e.target.value }))} placeholder="0.00" />
-          </div>
-          <div>
-            <label className="label">Insurance ({cur})</label>
-            <input type="number" min="0" step="0.01" className="input" value={form.insurance}
-              onChange={e => setForm(f => ({ ...f, insurance: e.target.value }))} placeholder="0.00" />
-          </div>
-          <div>
-            <label className="label">We Still Need to Collect ({cur})</label>
-            <div className={`input font-semibold ${amountToPay > 0 ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
-              {total > 0 || form.owner_collected_type === 'full'
-                ? `${cur} ${amountToPay.toLocaleString('en-EG', { minimumFractionDigits: 2 })}`
-                : '—'}
-            </div>
-          </div>
-        </div>
-
-        
-        <div className="border border-amber-200 bg-amber-50 rounded-xl p-3 space-y-3">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="owner_collected_toggle"
-              checked={!!form.owner_collected_type}
-              onChange={e => setForm(f => ({
-                ...f,
-                owner_collected_type: e.target.checked ? 'partial' : '',
-                owner_collected_amount: '',
-              }))}
-              className="w-4 h-4 rounded border-amber-400 text-amber-600"
-            />
-            <label htmlFor="owner_collected_toggle" className="text-sm font-semibold text-amber-800">
-              🏠 Owner collected payment from tenant
-            </label>
-          </div>
-
-          {form.owner_collected_type && (
-            <div className="space-y-3 pl-1">
-              
-              <div className="flex gap-4">
-                <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-colors text-sm font-medium
-                  ${form.owner_collected_type === 'partial'
-                    ? 'border-amber-500 bg-amber-100 text-amber-800'
-                    : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'}`}>
-                  <input
-                    type="radio" name="owner_collected_type" value="partial"
-                    checked={form.owner_collected_type === 'partial'}
-                    onChange={() => setForm(f => ({ ...f, owner_collected_type: 'partial' }))}
-                    className="accent-amber-600"
-                  />
-                  Partial Down Payment
-                </label>
-                <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-colors text-sm font-medium
-                  ${form.owner_collected_type === 'full'
-                    ? 'border-green-500 bg-green-100 text-green-800'
-                    : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'}`}>
-                  <input
-                    type="radio" name="owner_collected_type" value="full"
-                    checked={form.owner_collected_type === 'full'}
-                    onChange={() => setForm(f => ({ ...f, owner_collected_type: 'full', owner_collected_amount: form.total_amount }))}
-                    className="accent-green-600"
-                  />
-                  Full Payment
-                </label>
-              </div>
-
-              
-              {form.owner_collected_type === 'partial' && (
-                <div className="flex items-center gap-3">
-                  <label className="text-sm text-amber-700 font-medium whitespace-nowrap">Amount collected by owner:</label>
-                  <input
-                    type="number" min="0" step="0.01"
-                    className="input w-40"
-                    value={form.owner_collected_amount}
-                    onChange={e => setForm(f => ({ ...f, owner_collected_amount: e.target.value }))}
-                    placeholder="0.00"
-                  />
-                  <span className="text-sm text-amber-600">{cur}</span>
-                </div>
-              )}
-
-              
-              <div className={`text-xs rounded-lg px-3 py-2 font-medium
-                ${form.owner_collected_type === 'full'
-                  ? 'bg-green-100 text-green-800'
-                  : 'bg-amber-100 text-amber-800'}`}>
-                {form.owner_collected_type === 'full'
-                  ? `✓ Owner collected full reservation amount.${ins > 0 ? ` We only collect insurance = ${cur} ${ins.toLocaleString('en-EG', { minimumFractionDigits: 2 })}.` : ''} Commission still charged on full total.`
-                  : ownerCollectedAmt > 0
-                    ? `Owner collected ${cur} ${ownerCollectedAmt.toLocaleString('en-EG', { minimumFractionDigits: 2 })} — deducted from what we collect. Commission still charged on full total.`
-                    : 'Enter amount the owner collected from the tenant.'}
-              </div>
-            </div>
-          )}
-        </div>
-
-        
-        <div className="border border-purple-200 bg-purple-50 rounded-xl p-3 space-y-3">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="broker_toggle"
-              checked={!!form.broker_amount_per_night}
-              onChange={e => setForm(f => ({ ...f, broker_amount_per_night: e.target.checked ? '' : '', broker_name: e.target.checked ? f.broker_name : '' }))}
-              className="w-4 h-4 rounded border-purple-400 text-purple-600"
-            />
-            <label htmlFor="broker_toggle" className="text-sm font-semibold text-purple-800">
-              🤝 Broker Commission
-            </label>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label text-xs text-purple-700">Broker Name</label>
-              <input
-                type="text"
-                className="input"
-                value={form.broker_name}
-                onChange={e => setForm(f => ({ ...f, broker_name: e.target.value }))}
-                placeholder="e.g. Ahmed Ali"
-              />
-            </div>
-            <div>
-              <label className="label text-xs text-purple-700">Broker Amount / Night ({cur})</label>
-              <input
-                type="number" min="0" step="0.01"
-                className="input"
-                value={form.broker_amount_per_night}
-                onChange={e => setForm(f => ({ ...f, broker_amount_per_night: e.target.value }))}
-                placeholder="0.00"
-              />
-            </div>
-          </div>
-          {form.broker_amount_per_night > 0 && nights > 0 && (
-            <div className="text-xs bg-purple-100 text-purple-800 rounded-lg px-3 py-2 space-y-1">
-              <div>🤝 Broker total: <strong>{cur} {(parseFloat(form.broker_amount_per_night) * nights).toFixed(2)}</strong> ({nights} nights × {cur} {form.broker_amount_per_night})</div>
-              <div>💰 Net price/night (after broker): <strong>{cur} {(parseFloat(form.price_per_night || 0) - parseFloat(form.broker_amount_per_night)).toFixed(2)}</strong></div>
-            </div>
-          )}
-        </div>
-
-      </div>
-
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-          <input type="checkbox" id="is_owner_res" checked={!!form.is_owner_reservation}
-            onChange={e => setForm(f => ({ ...f, is_owner_reservation: e.target.checked }))}
-            className="w-4 h-4 rounded border-gray-300 text-primary-600" />
-          <label htmlFor="is_owner_res" className="text-sm font-medium text-amber-800">Owner Reservation</label>
-        </div>
-        <div>
-          <label className="label">Sales Person {!form.is_owner_reservation && <span className="text-red-500">*</span>}</label>
-          {lockSalesPerson ? (
-            <div className="input bg-gray-50 text-gray-700">{currentUserName || 'Assigned to you'}</div>
-          ) : (
-            <SearchableSelect
-              value={form.sales_person_id} onChange={v => setForm(f => ({ ...f, sales_person_id: v }))}
-              placeholder="Select sales person…"
-              options={[{ value: '', label: 'None' }, ...users.map(u => ({ value: String(u.id), label: u.full_name }))]}
-            />
-          )}
-        </div>
-      </div>
-
-      <div><label className="label">Notes</label><textarea className="input resize-none" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} /></div>
-
-      
-      {isNew && !form.is_owner_reservation && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
-          <h4 className="text-sm font-semibold text-emerald-900">Payment method</h4>
-          <p className="text-xs text-emerald-800">
-            Reservation stays <strong>pending</strong> until this payment is collected/approved.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            {MANUAL_PAYMENT_METHODS.map((m) => (
-              <label
-                key={m}
-                className={`flex cursor-pointer items-center gap-2 rounded-xl border-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                  form.payment_method === m
-                    ? 'border-emerald-600 bg-white text-emerald-900'
-                    : 'border-emerald-100 bg-white/60 text-gray-600 hover:border-emerald-300'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="payment_method"
-                  value={m}
-                  checked={form.payment_method === m}
-                  onChange={() => setForm((f) => ({ ...f, payment_method: m }))}
-                  className="accent-emerald-600"
-                />
-                {PAYMENT_METHOD_LABELS[m]}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
-      
-      {isNew && (
-        <div className="border border-dashed border-gray-300 rounded-lg px-4 py-3">
-          <label className="label flex items-center gap-1.5"><Upload className="w-3.5 h-3.5" />Transfer Proof (optional)</label>
-          <input type="file" accept="image/*,.pdf" onChange={e => onTransferProofChange(e.target.files[0] || null)}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100" />
-          {transferProof && <p className="text-xs text-green-600 mt-1">✓ {transferProof.name}</p>}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function PaymentForm({ form, setForm, onFileChange, currencyCode = 'EGP', rate = 1 }) {
@@ -1087,6 +725,8 @@ export default function Reservations() {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editId, setEditId] = useState(null);
+  const [editOriginal, setEditOriginal] = useState(null);
+  const [editInitial, setEditInitial] = useState(null);
   const [viewRes, setViewRes] = useState(null);
   const [extendReservation, setExtendReservation] = useState(null);
   const [otaFill, setOtaFill] = useState(null);
@@ -1150,16 +790,22 @@ export default function Reservations() {
 
   const saveMutation = useMutation({
     mutationFn: (d) => {
-      if (d instanceof FormData) return api.post('/reservations', d, { headers: { 'Content-Type': 'multipart/form-data' } });
-      return editId ? api.put(`/reservations/${editId}`, d) : api.post('/reservations', d);
+      const multipart = d instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined;
+      return editId ? api.put(`/reservations/${editId}`, d, multipart) : api.post('/reservations', d, multipart);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reservations'] });
       qc.invalidateQueries({ queryKey: ['blocked-dates'] });
+      qc.invalidateQueries({ queryKey: ['manual-blocked-dates'] });
       qc.invalidateQueries({ queryKey: ['schedule'] });
-      toast.success(editId ? 'Updated' : 'Reservation created — pending payment');
+      if (editId) {
+        qc.invalidateQueries({ queryKey: ['reservation', editId] });
+        qc.invalidateQueries({ queryKey: ['reservation-detail', editId] });
+      }
+      toast.success(editId ? 'Reservation updated' : 'Reservation created — pending payment');
       setModal(null);
       setTransferProof(null);
+      setEditOriginal(null);
     },
     onError: (e) => toast.error(e.response?.data?.error || 'Error saving'),
   });
@@ -1298,62 +944,36 @@ export default function Reservations() {
     setTransferProof(null);
     setModal('drawer');
   };
-  const openEdit = (r) => {
-    setForm(fromEgpFormValues({
-      unit_id: r.unit_id, guest_name: r.guest_name, guest_email: r.guest_email || '',
-      guest_phone: r.guest_phone || '', guest_nationality: r.guest_nationality || '',
-      adults: r.adults != null ? String(r.adults) : '2',
-      children: r.children != null ? String(r.children) : '0',
-      nanny_count: r.nanny_count != null ? String(r.nanny_count) : '0',
-      check_in: r.check_in, check_out: r.check_out,
-      price_per_night: r.price_per_night || '',
-      total_amount: r.total_amount,
-      down_payment: r.down_payment || '',
-      insurance: r.insurance || '',
-      booking_source: r.booking_source || '',
-      sales_person_id: r.sales_person_id || '',
-      is_owner_reservation: !!r.is_owner_reservation,
-      notes: r.notes || '', status: r.status,
-      owner_collected_type:   r.owner_collected_type   || '',
-      owner_collected_amount: r.owner_collected_amount || '',
-      beach_access_fees: r.beach_access_fees != null ? String(r.beach_access_fees) : '',
-      broker_name: r.broker_name || '',
-      broker_amount_per_night: r.broker_amount_per_night != null ? String(r.broker_amount_per_night) : '',
-    }, r));
-    setEditId(r.id); setModal('form');
+  const openEdit = async (r) => {
+    // Load the full row so every field (insurance, broker, proof, audit info…) is editable.
+    let full = r;
+    try {
+      const { data } = await api.get(`/reservations/${r.id}`);
+      full = data || r;
+    } catch (err) {
+      return toast.error(err.response?.data?.error || 'Could not load reservation');
+    }
+    const values = reservationToForm(full);
+    setForm(values);
+    setEditInitial(values);
+    setEditOriginal(full);
+    setEditId(r.id);
+    setTransferProof(null);
+    setModal('edit');
+  };
+
+  const closeForm = () => {
+    setModal(null);
+    setTransferProof(null);
+    setEditOriginal(null);
   };
 
   const handleSave = () => {
-    if (!form.guest_phone?.trim())
-      return toast.error('Mobile number is required');
-    if (!form.is_owner_reservation && !form.sales_person_id)
-      return toast.error('Please select a Sales Person or mark as Owner Reservation');
-    const adults = Math.max(0, parseInt(form.adults, 10) || 0);
-    const children = Math.max(0, parseInt(form.children, 10) || 0);
-    const nannyCount = Math.max(0, parseInt(form.nanny_count, 10) || 0);
-    if (!form.is_owner_reservation && adults < 1)
-      return toast.error('At least 1 adult is required');
-    const currencyError = reservationCurrencyError(form);
-    if (currencyError) return toast.error(currencyError);
-    const payload = {
-      ...toEgpPayload(form),
-      adults,
-      children,
-      nanny_count: nannyCount,
-      beach_access_fees: form.is_owner_reservation
-        ? 0
-        : form.beach_access_fees !== '' && form.beach_access_fees != null
-          ? Number(form.beach_access_fees)
-          : undefined,
-    };
-    if (!editId && transferProof) {
-      const fd = new FormData();
-      Object.entries(payload).forEach(([k, v]) => {
-        if (v !== '' && v !== null && v !== undefined)
-          fd.append(k, typeof v === 'boolean' ? (v ? '1' : '0') : v);
-      });
-      fd.append('transfer_proof', transferProof);
-      saveMutation.mutate(fd);
+    const mode = editId ? 'edit' : 'create';
+    const { payload, error } = buildReservationPayload(form, { mode, salesLocked: !isAdmin });
+    if (error) return toast.error(error);
+    if (transferProof) {
+      saveMutation.mutate(reservationFormData(payload, transferProof, { keepEmpty: mode === 'edit' }));
     } else {
       saveMutation.mutate(payload);
     }
@@ -2027,10 +1647,21 @@ export default function Reservations() {
 
       
       <AdminReservationDrawer
-        open={modal === 'drawer'}
-        onClose={() => { setModal(null); setTransferProof(null); }}
+        open={modal === 'drawer' || modal === 'edit'}
+        onClose={closeForm}
+        title={modal === 'edit' ? `Edit reservation #${editId}` : 'New Reservation'}
+        subtitle={
+          modal === 'edit'
+            ? [editOriginal?.guest_name, editOriginal?.unit_name].filter(Boolean).join(' · ') ||
+              'Change any detail, then save'
+            : undefined
+        }
       >
         <ManualReservationForm
+          key={modal === 'edit' ? `edit-${editId}` : 'create'}
+          mode={modal === 'edit' ? 'edit' : 'create'}
+          original={modal === 'edit' ? editOriginal : null}
+          initialForm={modal === 'edit' ? editInitial : null}
           form={form}
           setForm={setForm}
           units={units}
@@ -2039,29 +1670,12 @@ export default function Reservations() {
           onTransferProofChange={setTransferProof}
           lockSalesPerson={!isAdmin}
           currentUserName={user?.full_name || user?.username || ''}
-          allowPastDates
-          onCancel={() => { setModal(null); setTransferProof(null); }}
+          allowPastDates={allowPastDates}
+          onCancel={closeForm}
           onSubmit={handleSave}
           submitting={saveMutation.isPending}
         />
       </AdminReservationDrawer>
-
-      
-      <Modal open={modal === 'form'} onClose={() => { setModal(null); setTransferProof(null); }}
-        title="Edit Reservation" size="xl"
-        footer={<>
-          <button onClick={() => { setModal(null); setTransferProof(null); }} className="btn-secondary">Cancel</button>
-          <button onClick={handleSave} disabled={saveMutation.isPending} className="btn-primary">
-            {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
-          </button>
-        </>}
-      >
-        <ReservationForm form={form} setForm={setForm} units={bookableUnits} users={salesUsers}
-          isNew={false} editId={editId} transferProof={transferProof} onTransferProofChange={setTransferProof}
-          allowPastDates={allowPastDates}
-          lockSalesPerson={!isAdmin}
-          currentUserName={user?.full_name || user?.username || ''} />
-      </Modal>
 
       
       <ExtendStayModal
