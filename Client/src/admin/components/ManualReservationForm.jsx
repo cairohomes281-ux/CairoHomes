@@ -240,6 +240,25 @@ export default function ManualReservationForm({
   if (form.owner_collected_type === 'partial') toCollect = fullBill - ownerCollected - downPayment;
   toCollect = Math.max(0, toCollect);
   const alreadyPaid = isEdit ? reservationAmountPaid(original) : 0;
+
+  // "Add a deposit": adds a new amount on top of the down payment being edited.
+  const [depositInput, setDepositInput] = useState('');
+  const savedDownPayment = Number(initialForm?.down_payment) || 0;
+  const hasRecordedPayments =
+    isEdit &&
+    Array.isArray(original?.payments) &&
+    original.payments.some(
+      (p) => String(p.status) === 'successful' && Number(p.is_approved) === 1 && Number(p.amount) > 0
+    );
+  function addDeposit() {
+    const amount = Number(depositInput);
+    if (!(amount > 0)) return;
+    setForm((cur) => ({
+      ...cur,
+      down_payment: String(Math.round(((Number(cur.down_payment) || 0) + amount) * 100) / 100),
+    }));
+    setDepositInput('');
+  }
   const changes = useMemo(
     () => (isEdit ? changedFieldLabels(initialForm, form) : []),
     [isEdit, initialForm, form]
@@ -815,6 +834,63 @@ export default function ManualReservationForm({
               />
             </div>
           </div>
+
+          {isEdit && (
+            <div className="rounded-[10px] border border-emerald-200 bg-emerald-50/60 p-3">
+              <Label>Add a deposit ({currencyCode})</Label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={depositInput}
+                  onChange={(event) => setDepositInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      addDeposit();
+                    }
+                  }}
+                  className={fieldClass}
+                  placeholder="Amount received now"
+                />
+                <button
+                  type="button"
+                  onClick={addDeposit}
+                  disabled={!(Number(depositInput) > 0)}
+                  className="shrink-0 rounded-[10px] bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Add
+                </button>
+              </div>
+              <p className="mt-2 text-[12px] text-emerald-900">
+                Saved down payment: <strong>{formMoney(savedDownPayment)}</strong>
+                {Math.abs(downPayment - savedDownPayment) > 0.005 && (
+                  <>
+                    {' '}· {downPayment > savedDownPayment ? 'added' : 'changed by'}{' '}
+                    <strong>{formMoney(downPayment - savedDownPayment)}</strong> · new down payment{' '}
+                    <strong>{formMoney(downPayment)}</strong>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm((cur) => ({ ...cur, down_payment: initialForm?.down_payment ?? '' }))
+                      }
+                      className="ml-2 font-semibold text-[#1e5fbf] hover:underline"
+                    >
+                      Undo
+                    </button>
+                  </>
+                )}
+              </p>
+              {hasRecordedPayments && (
+                <p className="mt-1.5 text-[12px] text-amber-800">
+                  This reservation already has approved payments, so "Collected" follows those payments.
+                  To count a new deposit as collected, also record it with <strong>Add Payment</strong> in the
+                  reservation details.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
